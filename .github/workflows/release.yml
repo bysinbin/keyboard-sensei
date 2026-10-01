@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release macOS App
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Generate App Icon
+        run: |
+          swift scripts/generate_icon.swift
+          iconutil -c icns AppIcon.iconset -o AppIcon.icns
+          rm -rf AppIcon.iconset
+
+      - name: Build Application Bundle
+        run: |
+          chmod +x scripts/build_app.sh
+          ./scripts/build_app.sh
+
+      - name: Create Release Zip
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent "Keyboard Sensei.app" "Keyboard-Sensei-macOS.zip"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Keyboard-Sensei-macOS.zip
+          name: "Keyboard Sensei ${{ github.ref_name }}"
+          body: |
+            ## 🥋 Keyboard Sensei ${{ github.ref_name }}
+            
+            İngilizce (ANSI) klavyelerde Türkçe Q klavye düzeni kullanılırken yaşanan eksik tuş (`<`, `>`, `|` vb.) sorununu çözen yerel macOS tuş dönüştürücüsü ve yönetim paneli.
+
+            ### 🚀 İndirme & Kurulum
+            1. Aşağıdaki **`Keyboard-Sensei-macOS.zip`** dosyasını indirin ve açın.
+            2. Çıkan **`Keyboard Sensei.app`** uygulamasını **Uygulamalar (Applications)** klasörüne sürükleyin.
+            3. Uygulamayı çalıştırın ve **Sistem Ayarları > Gizlilik ve Güvenlik > Erişilebilirlik** iznini verin.
+            4. Web yönetim paneline [http://localhost:5252](http://localhost:5252) adresinden erişebilirsiniz.
+          generate_release_notes: true
+          draft: false
+          prerelease: false

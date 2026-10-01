@@ -15,3 +15,4 @@ keyboard-sensei
 config.json
 *.log
 test_*.go
+*.zip
