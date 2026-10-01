@@ -1,0 +1,17 @@
+# Binaries & Apps
+keyboard-sensei
+*.app/
+*.o
+*.a
+
+# OS Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# Local config & logs
+config.json
+*.log
+test_*.go

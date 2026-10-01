@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyboard Sensei — macOS Tuş Dönüştürücü & Makro Yöneticisi</title>
+  <meta name="description" content="İngilizce ANSI klavyede Türkçe karakterler (<, >, |) ve özel kısayolları gecikmesiz dönüştüren yerel macOS yöneticisi.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Background Glow Effects -->
+  <div class="glow-orb orb-1"></div>
+  <div class="glow-orb orb-2"></div>
+
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="navbar glass-card">
+      <div class="brand">
+        <div class="brand-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="4"></rect>
+            <path d="M6 8h.01M10 8h.01M14 8h.01M18 8h.01M6 12h.01M10 12h.01M14 12h.01M18 12h.01M8 16h8"></path>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>Keyboard Sensei</h1>
+          <span class="brand-subtitle">macOS ANSI & Tuş Dönüştürücü</span>
+        </div>
+      </div>
+
+      <div class="nav-controls">
+        <div id="status-badge" class="status-badge status-active">
+          <span class="status-dot"></span>
+          <span id="status-text" class="status-text">Motor Aktif</span>
+        </div>
+
+        <div class="service-toggle-wrapper" title="Mac açıldığında arka planda otomatik başlasın">
+          <span class="service-label">🚀 Otomatik Başlat</span>
+          <label class="switch">
+            <input type="checkbox" id="service-auto-start-toggle">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <button id="btn-toggle-pause" class="btn btn-secondary" title="Durdur / Başlat">
+          <span id="pause-icon">⏸</span>
+          <span id="pause-text">Duraklat</span>
+        </button>
+
+        <button id="btn-open-settings" class="btn btn-ghost" title="macOS Erişilebilirlik İznini Aç">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          <span>Sistem İzinleri</span>
+        </button>
+
+        <button id="btn-quit-app" class="btn btn-danger-ghost" title="Uygulamayı ve Servisi Tamamen Kapat">
+          <span>🛑 Kapat</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Permission Alert (Hidden if trusted) -->
+    <aside id="permission-banner" class="alert-banner hidden">
+      <div class="alert-icon">⚠️</div>
+      <div class="alert-content">
+        <strong>macOS Erişilebilirlik (Accessibility) İzni Gerekli:</strong>
+        Klavye tuşlarını yakalayabilmek için izne ihtiyaç var.
+      </div>
+      <button id="btn-fix-permission" class="btn btn-warning btn-sm">İzin Ver</button>
+    </aside>
+
+    <!-- Main Content Grid -->
+    <main class="dashboard-grid">
+      <!-- Left Column: Rules & Actions -->
+      <section class="main-column">
+        <!-- Quick Stats Cards -->
+        <div class="stats-row">
+          <div class="stat-card glass-card">
+            <span class="stat-label">Toplam Dönüşüm</span>
+            <div class="stat-value" id="stat-total-triggers">0</div>
+            <span class="stat-sub">Anlık Unicode enjeksiyonu</span>
+          </div>
+
+          <div class="stat-card glass-card">
+            <span class="stat-label">Aktif Kurallar</span>
+            <div class="stat-value" id="stat-active-rules">0</div>
+            <span class="stat-sub">Arka planda hazır</span>
+          </div>
+
+          <div class="stat-card glass-card">
+            <span class="stat-label">Tepki Süresi</span>
+            <div class="stat-value highlight-cyan">&lt; 0.1ms</div>
+            <span class="stat-sub">Donanım seviyesi CGEvent</span>
+          </div>
+        </div>
+
+        <!-- Preset Banner -->
+        <div class="preset-banner glass-card">
+          <div class="preset-info">
+            <span class="preset-badge">Önerilen Şablon</span>
+            <h3>ANSI Klavye Türkçe Karakter Paketi</h3>
+            <p>Eksik olan <code>&lt;</code> (⌘ö), <code>&gt;</code> (⌘ç) ve <code>|</code> (⌥.) tuşlarını anında kurun.</p>
+          </div>
+          <button id="btn-apply-preset" class="btn btn-primary">
+            <span>✨ Şablonu Uygula</span>
+          </button>
+        </div>
+
+        <!-- Rules Section -->
+        <section class="section-card glass-card">
+          <div class="section-header">
+            <div>
+              <h2>Klavye Kuralları</h2>
+              <p class="section-desc">Hangi tuş kombinasyonunun hangi karaktere dönüşeceğini yönetin.</p>
+            </div>
+            <button id="btn-add-rule" class="btn btn-primary">
+              <span>+ Yeni Kural Ekle</span>
+            </button>
+          </div>
+
+          <div id="rules-container" class="rules-list">
+            <!-- Rules dynamically rendered here -->
+            <div class="loading-placeholder">Kurallar yükleniyor...</div>
+          </div>
+        </section>
+      </section>
+
+      <!-- Right Column: Live Sandbox & Activity Stream -->
+      <aside class="sidebar-column">
+        <!-- Interactive Testing Playground -->
+        <div class="sandbox-card glass-card">
+          <div class="sandbox-header">
+            <h3>🧪 Canlı Test Alanı</h3>
+            <span class="sandbox-tip">Kısayollarınızı burada deneyin</span>
+          </div>
+          <p class="sandbox-desc">İmleci bu kutunun içine koyup <code>⌘ + ö</code> veya <code>⌘ + ç</code> tuşlarına basın:</p>
+          <div class="test-input-wrapper">
+            <textarea id="sandbox-textarea" placeholder="Buraya tıklayıp kısayolunuzu deneyin (örn. ⌘ö basınca < yazar)..." rows="3"></textarea>
+            <button id="btn-clear-sandbox" class="btn-clear-input" title="Temizle">Temizle</button>
+          </div>
+        </div>
+
+        <!-- Live Activity Console -->
+        <div class="activity-card glass-card">
+          <div class="activity-header">
+            <div class="activity-title-group">
+              <span class="pulse-indicator"></span>
+              <h3>Canlı Olay Akışı</h3>
+            </div>
+            <button id="btn-clear-logs" class="btn-text-only">Temizle</button>
+          </div>
+          <div id="activity-stream" class="activity-stream">
+            <div class="stream-empty">Henüz bir tuş tetiklenmedi. Denemek için kısayollarınızı kullanın!</div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Modal: Add / Edit Rule -->
+  <div id="rule-modal" class="modal-overlay hidden">
+    <div class="modal-box glass-card">
+      <div class="modal-header">
+        <h3 id="modal-title">Yeni Kural Ekle</h3>
+        <button id="btn-close-modal" class="btn-close" aria-label="Kapat">&times;</button>
+      </div>
+
+      <form id="rule-form">
+        <input type="hidden" id="form-rule-id">
+
+        <!-- Interactive Key Recorder -->
+        <div class="form-group">
+          <label>Kısayol Tuşunu Belirleyin</label>
+          <div class="key-recorder-box" id="key-recorder-box" tabindex="0">
+            <div class="recorder-prompt" id="recorder-prompt">
+              <span class="recorder-icon">⌨️</span>
+              <span id="recorder-label">Tuş kombinasyonunu kaydetmek için buraya tıklayın ve tuşlara basın</span>
+            </div>
+            <div class="recorded-display hidden" id="recorded-display">
+              <span id="recorded-badges"></span>
+              <span class="recorder-rebind-hint">(Tekrar basarak değiştirin)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Manual Selection (Collapsible / Alternative) -->
+        <div class="form-group">
+          <label>Modifier Tuşları</label>
+          <div class="modifier-checkboxes">
+            <label class="mod-pill">
+              <input type="checkbox" id="mod-cmd" value="cmd">
+              <span>⌘ Command</span>
+            </label>
+            <label class="mod-pill">
+              <input type="checkbox" id="mod-alt" value="alt">
+              <span>⌥ Option / Alt</span>
+            </label>
+            <label class="mod-pill">
+              <input type="checkbox" id="mod-ctrl" value="ctrl">
+              <span>⌃ Control</span>
+            </label>
+            <label class="mod-pill">
+              <input type="checkbox" id="mod-shift" value="shift">
+              <span>⇧ Shift</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label for="form-keycode">Hedef Klavye Tuşu</label>
+            <select id="form-keycode" class="form-control" required>
+              <option value="">Tuş Seçin...</option>
+              <!-- Filled via JS -->
+            </select>
+          </div>
+
+          <div class="form-group flex-1">
+            <label for="form-output">Yazılacak Karakter / Metin</label>
+            <input type="text" id="form-output" class="form-control text-center text-mono highlight-input" placeholder="örn: < veya > veya |" maxlength="32" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="form-name">Kural Adı (İsteğe Bağlı)</label>
+          <input type="text" id="form-name" class="form-control" placeholder="örn: Küçüktür İşareti">
+        </div>
+
+        <div class="form-group">
+          <label for="form-description">Açıklama</label>
+          <input type="text" id="form-description" class="form-control" placeholder="örn: ANSI klavyede eksik olan < işaretini yazar">
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" id="btn-cancel-modal" class="btn btn-secondary">Vazgeç</button>
+          <button type="submit" id="btn-save-rule" class="btn btn-primary">Kaydet</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
