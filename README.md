@@ -50,3 +50,14 @@ macOS'in klavye tuşlarını yakalayabilmesi için uygulamanın bir kereliğe ma
 # Web panelini tarayıcıda aç
 open http://localhost:5252
 ```
+
+---
+
+## 🖥️ Uzak Masaüstü (Microsoft Remote Desktop / RDP) ile Kullanım
+
+Microsoft Remote Desktop (RDP) varsayılan olarak donanımsal *Scancode* modunda çalışır. Windows oturumunuzda `\` (ters slash), `<`, `>`, `|` vb. tüm özel karakterlerin sorunsuz yazılması için:
+
+1. Uzak masaüstü penceresi açıkken üst menü çubuğundan **Connections** menüsüne gelin.
+2. **Keyboard Mode** seçeneğini **"Unicode"** olarak değiştirin (veya doğrudan kısayoluna basın: **`⌃ + ⌘ + U`** / Control + Command + U).
+3. Bu ayardan sonra Keyboard Sensei ile ürettiğiniz tüm karakterler Windows oturumuna kusursuz iletilecektir.
+

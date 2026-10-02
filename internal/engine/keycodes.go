@@ -32,7 +32,8 @@ var VirtualKeys = map[int]KeyInfo{
 	30: {Code: 30, Name: "ü", TurkishDesc: "Türkçe 'ü' (ANSI Sağ Köşeli Parantez ']')"},
 	27: {Code: 27, Name: "-", TurkishDesc: "ANSI Eksi / Tire '-'"},
 	24: {Code: 24, Name: "=", TurkishDesc: "ANSI Eşittir '='"},
-	50: {Code: 50, Name: "< (ISO)", TurkishDesc: "ISO < tuşu (ANSI klavyede fiziksel yoktur)"},
+	50: {Code: 50, Name: "\" (ANSI) / < (ISO)", TurkishDesc: "Türkçe '\"' (ANSI Grave / Tırnak) veya ISO '<' tuşu"},
+	10: {Code: 10, Name: "\" (ISO) / §", TurkishDesc: "Türkçe '\"' (ISO Tırnak) / Bölüm '§' (1'in solundaki tuş)"},
 
 	// Letters A-Z
 	0:  {Code: 0, Name: "a", TurkishDesc: "A tuşu"},
@@ -80,12 +81,27 @@ var VirtualKeys = map[int]KeyInfo{
 	48: {Code: 48, Name: "tab", TurkishDesc: "Sekme (Tab)"},
 	51: {Code: 51, Name: "backspace", TurkishDesc: "Geri Silme (Backspace)"},
 	53: {Code: 53, Name: "escape", TurkishDesc: "ESC (Escape)"},
+	117: {Code: 117, Name: "delete", TurkishDesc: "İleri Silme (Forward Delete)"},
 
 	// Arrows
 	123: {Code: 123, Name: "left", TurkishDesc: "Sol Ok Tuşu"},
 	124: {Code: 124, Name: "right", TurkishDesc: "Sağ Ok Tuşu"},
 	125: {Code: 125, Name: "down", TurkishDesc: "Aşağı Ok Tuşu"},
 	126: {Code: 126, Name: "up", TurkishDesc: "Yukarı Ok Tuşu"},
+
+	// Function Keys
+	122: {Code: 122, Name: "F1", TurkishDesc: "F1 Tuşu"},
+	120: {Code: 120, Name: "F2", TurkishDesc: "F2 Tuşu"},
+	99:  {Code: 99, Name: "F3", TurkishDesc: "F3 Tuşu"},
+	118: {Code: 118, Name: "F4", TurkishDesc: "F4 Tuşu"},
+	96:  {Code: 96, Name: "F5", TurkishDesc: "F5 Tuşu"},
+	97:  {Code: 97, Name: "F6", TurkishDesc: "F6 Tuşu"},
+	98:  {Code: 98, Name: "F7", TurkishDesc: "F7 Tuşu"},
+	100: {Code: 100, Name: "F8", TurkishDesc: "F8 Tuşu"},
+	101: {Code: 101, Name: "F9", TurkishDesc: "F9 Tuşu"},
+	109: {Code: 109, Name: "F10", TurkishDesc: "F10 Tuşu"},
+	103: {Code: 103, Name: "F11", TurkishDesc: "F11 Tuşu"},
+	111: {Code: 111, Name: "F12", TurkishDesc: "F12 Tuşu"},
 }
 
 func ModifiersToMask(mods []string) uint32 {

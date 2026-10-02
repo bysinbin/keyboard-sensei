@@ -44,6 +44,8 @@ static uint32_t extractModifiers(CGEventFlags flags) {
     return mod;
 }
 
+#define SENSEI_EVENT_MAGIC 0x53454E53
+
 static void injectUnicodeString(const UniChar* chars, int len) {
     if (!chars || len <= 0) return;
     
@@ -52,13 +54,15 @@ static void injectUnicodeString(const UniChar* chars, int len) {
     CGEventRef down = CGEventCreateKeyboardEvent(src, 0, true);
     CGEventKeyboardSetUnicodeString(down, len, chars);
     CGEventSetFlags(down, 0);
-    CGEventPost(kCGAnnotatedSessionEventTap, down);
+    CGEventSetIntegerValueField(down, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, down);
     CFRelease(down);
     
     CGEventRef up = CGEventCreateKeyboardEvent(src, 0, false);
     CGEventKeyboardSetUnicodeString(up, len, chars);
     CGEventSetFlags(up, 0);
-    CGEventPost(kCGAnnotatedSessionEventTap, up);
+    CGEventSetIntegerValueField(up, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, up);
     CFRelease(up);
     
     CFRelease(src);
@@ -73,6 +77,11 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
     }
     
     if (g_isPaused) {
+        return event;
+    }
+
+    // Never re-intercept our own synthetic events
+    if (CGEventGetIntegerValueField(event, kCGEventSourceUserData) == SENSEI_EVENT_MAGIC) {
         return event;
     }
     

@@ -10,17 +10,21 @@ let state = {
 
 // Browser event.code to macOS virtual keycode mapping
 const CODE_TO_MACOS_KEYCODE = {
-  // Special Turkish Q on ANSI mappings
-  'Comma': 43,        // Turkish 'ö'
-  'Period': 47,       // Turkish 'ç'
-  'Slash': 44,        // Turkish '.'
-  'Backslash': 42,    // Turkish ','
-  'Semicolon': 41,    // Turkish 'ş'
-  'Quote': 39,        // Turkish 'i'
-  'BracketLeft': 33,  // Turkish 'ğ'
-  'BracketRight': 30, // Turkish 'ü'
+  // Special Turkish Q on ANSI & ISO mappings
+  'Comma': 43,        // Turkish 'ö' (ANSI Comma)
+  'Period': 47,       // Turkish 'ç' (ANSI Period)
+  'Slash': 44,        // Turkish '.' (ANSI Slash)
+  'Backslash': 42,    // Turkish ',' (ANSI Backslash)
+  'Semicolon': 41,    // Turkish 'ş' (ANSI Semicolon)
+  'Quote': 39,        // Turkish 'i' (ANSI Quote)
+  'BracketLeft': 33,  // Turkish 'ğ' (ANSI Left Bracket)
+  'BracketRight': 30, // Turkish 'ü' (ANSI Right Bracket)
   'Minus': 27,        // '-'
   'Equal': 24,        // '='
+  'Backquote': 50,    // Turkish '"' (çift tırnak) / ANSI Grave / Tilde
+  'IntlBackslash': 50,// ISO '< >' key (or 10)
+  'IntlRo': 94,
+  'IntlYen': 93,
 
   // Letters
   'KeyA': 0, 'KeyS': 1, 'KeyD': 2, 'KeyF': 3, 'KeyH': 4, 'KeyG': 5,
@@ -33,9 +37,61 @@ const CODE_TO_MACOS_KEYCODE = {
   'Digit1': 18, 'Digit2': 19, 'Digit3': 20, 'Digit4': 21, 'Digit5': 23,
   'Digit6': 22, 'Digit7': 26, 'Digit8': 28, 'Digit9': 25, 'Digit0': 29,
 
-  // Controls
-  'Space': 49, 'Enter': 36, 'Tab': 48, 'Backspace': 51, 'Escape': 53,
-  'ArrowLeft': 123, 'ArrowRight': 124, 'ArrowDown': 125, 'ArrowUp': 126
+  // Function Keys
+  'F1': 122, 'F2': 120, 'F3': 99, 'F4': 118, 'F5': 96, 'F6': 97,
+  'F7': 98, 'F8': 100, 'F9': 101, 'F10': 109, 'F11': 103, 'F12': 111,
+
+  // Controls & Navigation
+  'Space': 49, 'Enter': 36, 'NumpadEnter': 76, 'Tab': 48, 'Backspace': 51, 'Escape': 53,
+  'ArrowLeft': 123, 'ArrowRight': 124, 'ArrowDown': 125, 'ArrowUp': 126,
+  'Home': 115, 'End': 119, 'PageUp': 116, 'PageDown': 121, 'Delete': 117,
+
+  // Numpad
+  'Numpad0': 82, 'Numpad1': 83, 'Numpad2': 84, 'Numpad3': 85, 'Numpad4': 86,
+  'Numpad5': 87, 'Numpad6': 88, 'Numpad7': 89, 'Numpad8': 91, 'Numpad9': 92,
+  'NumpadDecimal': 65, 'NumpadMultiply': 67, 'NumpadAdd': 69, 'NumpadDivide': 75,
+  'NumpadSubtract': 78, 'NumpadEqual': 81
+};
+
+// Fallback: Browser event.keyCode (VK codes) to macOS virtual keycodes
+const VK_TO_MACOS_KEYCODE = {
+  // Letters A-Z
+  65: 0,  83: 1,  68: 2,  70: 3,  72: 4,  71: 5,  90: 6,  88: 7,
+  67: 8,  86: 9,  66: 11, 81: 12, 87: 13, 69: 14, 82: 15, 89: 16,
+  84: 17, 85: 32, 73: 34, 79: 31, 80: 35, 74: 38, 75: 40, 76: 37,
+  78: 45, 77: 46,
+
+  // Digits 0-9
+  49: 18, 50: 19, 51: 20, 52: 21, 53: 23,
+  54: 22, 55: 26, 56: 28, 57: 25, 48: 29,
+
+  // Punctuation & Special (Crucial for Turkish Q & ANSI / ISO)
+  188: 43, // VK_OEM_COMMA -> macOS 43 (Turkish 'ö' / ANSI Comma)
+  190: 47, // VK_OEM_PERIOD -> macOS 47 (Turkish 'ç' / ANSI Period)
+  191: 44, // VK_OEM_2 -> macOS 44 (Turkish '.' / ANSI Slash)
+  220: 42, // VK_OEM_5 -> macOS 42 (Turkish ',' / ANSI Backslash)
+  186: 41, // VK_OEM_1 -> macOS 41 (Turkish 'ş' / ANSI Semicolon)
+  59:  41, // Firefox Semicolon
+  222: 39, // VK_OEM_7 -> macOS 39 (Turkish 'i' / ANSI Quote)
+  219: 33, // VK_OEM_4 -> macOS 33 (Turkish 'ğ' / ANSI BracketLeft)
+  221: 30, // VK_OEM_6 -> macOS 30 (Turkish 'ü' / ANSI BracketRight)
+  189: 27, // VK_OEM_MINUS -> macOS 27 ('-')
+  173: 27, // Firefox Minus
+  187: 24, // VK_OEM_PLUS -> macOS 24 ('=')
+  61:  24, // Firefox Equal
+  192: 50, // VK_OEM_3 (Backquote/Grave) -> macOS 50 (Turkish '"' çift tırnak)
+  226: 50, // VK_OEM_102 (IntlBackslash) -> macOS 50 (ISO '< >')
+
+  // Common Controls
+  32: 49,  // Space
+  13: 36,  // Enter
+  9:  48,  // Tab
+  8:  51,  // Backspace
+  27: 53,  // Escape
+  37: 123, // Left
+  39: 124, // Right
+  40: 125, // Down
+  38: 126  // Up
 };
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -208,7 +264,7 @@ function populateKeycodeDropdown() {
 
   // Group by priority
   const turkishAnsiGroup = document.createElement('optgroup');
-  turkishAnsiGroup.label = 'Türkçe Q / ANSI Özel Tuşları (Önerilen)';
+  turkishAnsiGroup.label = 'Türkçe Q / ANSI / ISO Özel Tuşları (Önerilen)';
 
   const otherGroup = document.createElement('optgroup');
   otherGroup.label = 'Diğer Standart Tuşlar';
@@ -218,7 +274,7 @@ function populateKeycodeDropdown() {
     opt.value = k.code;
     opt.textContent = `${k.turkish_desc} (Kod: ${k.code})`;
 
-    if ([43, 47, 44, 42, 41, 39, 33, 30, 27, 24, 50].includes(k.code)) {
+    if ([43, 47, 44, 42, 41, 39, 33, 30, 27, 24, 50, 10].includes(k.code)) {
       turkishAnsiGroup.appendChild(opt);
     } else {
       otherGroup.appendChild(opt);
@@ -272,8 +328,11 @@ function setupKeyRecorder() {
     if (e.metaKey) mods.push('cmd');
 
     let keycode = CODE_TO_MACOS_KEYCODE[e.code];
+    if (keycode === undefined && e.keyCode) {
+      keycode = VK_TO_MACOS_KEYCODE[e.keyCode];
+    }
     if (keycode === undefined) {
-      // Fallback: check if keyCode is valid
+      // Final fallback
       keycode = e.keyCode;
     }
 
@@ -291,8 +350,16 @@ function setupKeyRecorder() {
     document.getElementById('mod-ctrl').checked = mods.includes('ctrl');
     document.getElementById('mod-shift').checked = mods.includes('shift');
 
-    // Update dropdown
-    document.getElementById('form-keycode').value = keycode;
+    // Update dropdown: dynamically ensure option exists so it is never blank
+    const selectEl = document.getElementById('form-keycode');
+    let opt = selectEl.querySelector(`option[value="${keycode}"]`);
+    if (!opt && keycode !== undefined && !isNaN(keycode)) {
+      opt = document.createElement('option');
+      opt.value = keycode;
+      opt.textContent = `Özel Tuş #${keycode} (Kod: ${keycode})`;
+      selectEl.appendChild(opt);
+    }
+    selectEl.value = keycode;
 
     // Show badges
     prompt.classList.add('hidden');
