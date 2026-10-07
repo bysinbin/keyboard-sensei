@@ -3,13 +3,15 @@ set -e
 
 APP_NAME="Keyboard Sensei"
 APP_DIR="${APP_NAME}.app"
-CONTENTS_DIR="${APP_DIR}/Contents"
+STAGING_DIR="/tmp/${APP_NAME}.app"
+CONTENTS_DIR="${STAGING_DIR}/Contents"
 MACOS_DIR="${CONTENTS_DIR}/MacOS"
 RESOURCES_DIR="${CONTENTS_DIR}/Resources"
 
 echo "🥋 Building ${APP_NAME}.app bundle..."
 
 # 1. Clean previous build
+rm -rf "${STAGING_DIR}"
 rm -rf "${APP_DIR}"
 mkdir -p "${MACOS_DIR}"
 mkdir -p "${RESOURCES_DIR}"
@@ -60,13 +62,16 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
 </plist>
 EOF
 
-# 5. Sign the App Bundle properly
+# 5. Sign the App Bundle properly in staging
 echo "🔏 Signing app bundle..."
-find "${APP_DIR}" -name ".DS_Store" -delete
-find "${APP_DIR}" -name "._*" -delete
-dot_clean "${APP_DIR}"
-xattr -cr "${APP_DIR}"
-codesign --force --deep --sign - "${APP_DIR}"
+find "${STAGING_DIR}" -name ".DS_Store" -delete
+find "${STAGING_DIR}" -name "._*" -delete
+dot_clean "${STAGING_DIR}" 2>/dev/null || true
+xattr -cr "${STAGING_DIR}" 2>/dev/null || true
+codesign --force --deep --sign - "${STAGING_DIR}"
+
+# 6. Copy to local and Applications
+ditto "${STAGING_DIR}" "${APP_DIR}"
 
 echo "✅ ${APP_NAME}.app başarıyla oluşturuldu ve imzalandı!"
 echo "📍 Konum: $(pwd)/${APP_DIR}"

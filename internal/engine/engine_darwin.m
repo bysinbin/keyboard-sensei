@@ -491,7 +491,11 @@ void c_setupTray() {
 
 void c_runCocoaLoop() {
     @autoreleasepool {
+        if (![NSThread isMainThread]) {
+            return;
+        }
         NSApplication *app = [NSApplication sharedApplication];
+        [app setActivationPolicy:NSApplicationActivationPolicyAccessory];
         c_setupTray();
         [app run];
     }

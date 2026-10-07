@@ -17,6 +17,10 @@ import (
 	"keyboard-sensei/internal/web"
 )
 
+func init() {
+	runtime.LockOSThread()
+}
+
 func main() {
 	portFlag := flag.Int("port", 0, "Web arayüzü port numarası (varsayılan: 5252)")
 	openBrowser := flag.Bool("open", true, "Başlangıçta tarayıcıyı otomatik aç")
