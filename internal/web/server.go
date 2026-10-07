@@ -4,6 +4,7 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -16,6 +17,8 @@ import (
 	"keyboard-sensei/internal/engine"
 	"keyboard-sensei/internal/service"
 )
+
+const AppVersion = "v1.1.0"
 
 //go:embed static/*
 var staticFS embed.FS
@@ -42,6 +45,13 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/rules", s.handleRules)
 	mux.HandleFunc("/api/rules/", s.handleRuleByID)
+	mux.HandleFunc("/api/profiles", s.handleProfiles)
+	mux.HandleFunc("/api/profiles/", s.handleProfileByID)
+	mux.HandleFunc("/api/profiles/activate", s.handleActivateProfile)
+	mux.HandleFunc("/api/export", s.handleExport)
+	mux.HandleFunc("/api/import", s.handleImport)
+	mux.HandleFunc("/api/active_app", s.handleActiveApp)
+	mux.HandleFunc("/api/version", s.handleVersion)
 	mux.HandleFunc("/api/keycodes", s.handleKeycodes)
 	mux.HandleFunc("/api/presets/apply", s.handleApplyPreset)
 	mux.HandleFunc("/api/service", s.handleService)
@@ -75,6 +85,8 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	stats := s.engine.GetStats()
 	cfg := config.Get()
+	activeProfile := cfg.GetActiveProfile()
+	appName, appBundleID := s.engine.GetFrontmostApp()
 
 	resp := map[string]interface{}{
 		"running":               s.engine.IsRunning(),
@@ -82,10 +94,19 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"accessibility_trusted": s.engine.IsAccessibilityTrusted(),
 		"port":                  s.port,
 		"rule_count":            len(cfg.Rules),
+		"active_profile_id":     cfg.ActiveProfileID,
+		"active_profile_name":   "",
 		"service_installed":     service.IsInstalled(),
 		"service_running":       service.IsRunning(),
+		"version":               AppVersion,
+		"active_app_name":       appName,
+		"active_app_bundle":     appBundleID,
 		"stats":                 stats,
 		"config_file":           config.GetConfigFilePath(),
+	}
+
+	if activeProfile != nil {
+		resp["active_profile_name"] = activeProfile.Name
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -102,7 +123,6 @@ func (s *Server) handleTogglePause(w http.ResponseWriter, r *http.Request) {
 		Paused *bool `json:"paused"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Paused == nil {
-		// Toggle if not specified
 		newVal := !s.engine.IsPaused()
 		s.engine.SetPaused(newVal)
 	} else {
@@ -121,7 +141,6 @@ func (s *Server) handleOpenSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Open macOS Accessibility settings directly
 	_ = exec.Command("open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility").Run()
 	s.engine.PromptAccessibility()
 
@@ -151,6 +170,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		}
 
 		s.engine.UpdateRules(updated.Rules)
+		s.engine.SetGlobalExcludedApps(updated.ExcludedApps)
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(updated)
@@ -186,7 +206,15 @@ func (s *Server) handleRules(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		cfg.Rules = append(cfg.Rules, newRule)
+		// Add to active profile
+		active := cfg.GetActiveProfile()
+		if active != nil {
+			active.Rules = append(active.Rules, newRule)
+		} else {
+			cfg.Rules = append(cfg.Rules, newRule)
+		}
+		cfg.SyncActiveRules()
+
 		if err := config.SaveConfig(cfg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -210,8 +238,14 @@ func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cfg := config.Get()
+	active := cfg.GetActiveProfile()
+	if active == nil {
+		http.Error(w, "Aktif profil bulunamadı", http.StatusInternalServerError)
+		return
+	}
+
 	foundIdx := -1
-	for i, rule := range cfg.Rules {
+	for i, rule := range active.Rules {
 		if rule.ID == ruleID {
 			foundIdx = i
 			break
@@ -224,7 +258,8 @@ func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Rule not found", http.StatusNotFound)
 			return
 		}
-		cfg.Rules = append(cfg.Rules[:foundIdx], cfg.Rules[foundIdx+1:]...)
+		active.Rules = append(active.Rules[:foundIdx], active.Rules[foundIdx+1:]...)
+		cfg.SyncActiveRules()
 		if err := config.SaveConfig(cfg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -243,7 +278,8 @@ func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		updated.ID = ruleID
-		cfg.Rules[foundIdx] = updated
+		active.Rules[foundIdx] = updated
+		cfg.SyncActiveRules()
 		if err := config.SaveConfig(cfg); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -255,6 +291,206 @@ func (s *Server) handleRuleByID(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+func (s *Server) handleProfiles(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+
+	switch r.Method {
+	case http.MethodGet:
+		resp := map[string]interface{}{
+			"active_profile_id": cfg.ActiveProfileID,
+			"profiles":          cfg.Profiles,
+			"presets":           config.BuiltinPresets(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(resp)
+
+	case http.MethodPost:
+		var newProfile config.Profile
+		if err := json.NewDecoder(r.Body).Decode(&newProfile); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err := cfg.AddProfile(newProfile); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(newProfile)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleProfileByID(w http.ResponseWriter, r *http.Request) {
+	profileID := strings.TrimPrefix(r.URL.Path, "/api/profiles/")
+	if profileID == "" {
+		http.Error(w, "Profile ID required", http.StatusBadRequest)
+		return
+	}
+
+	cfg := config.Get()
+
+	switch r.Method {
+	case http.MethodPut:
+		var updated config.Profile
+		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		updated.ID = profileID
+		if err := cfg.UpdateProfile(updated); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.engine.UpdateRules(cfg.Rules)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(updated)
+
+	case http.MethodDelete:
+		if err := cfg.DeleteProfile(profileID); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		s.engine.UpdateRules(cfg.Rules)
+		w.WriteHeader(http.StatusNoContent)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleActivateProfile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var body struct {
+		ProfileID string `json:"profile_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.ProfileID == "" {
+		http.Error(w, "Geçerli bir profile_id gereklidir", http.StatusBadRequest)
+		return
+	}
+
+	cfg := config.Get()
+	if err := cfg.SetActiveProfile(body.ProfileID); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if err := config.SaveConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.engine.UpdateRules(cfg.Rules)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"active_profile_id": cfg.ActiveProfileID,
+		"rules":             cfg.Rules,
+	})
+}
+
+func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	cfg := config.Get()
+	data, err := cfg.ExportJSON()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Disposition", "attachment; filename=\"keyboard-sensei-backup.json\"")
+	_, _ = w.Write(data)
+}
+
+func (s *Server) handleImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	data, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	cfg := config.Get()
+	if err := cfg.ImportJSON(data); err != nil {
+		http.Error(w, fmt.Sprintf("İçe aktarma hatası: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := config.SaveConfig(cfg); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	s.engine.UpdateRules(cfg.Rules)
+	s.engine.SetGlobalExcludedApps(cfg.ExcludedApps)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"message": "Konfigürasyon başarıyla içe aktarıldı",
+		"config":  cfg,
+	})
+}
+
+func (s *Server) handleActiveApp(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	name, bundleID := s.engine.GetFrontmostApp()
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{
+		"name":      name,
+		"bundle_id": bundleID,
+	})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	resp := map[string]interface{}{
+		"version":    AppVersion,
+		"github_url": "https://github.com/bysinbin/keyboard-sensei",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
 }
 
 func (s *Server) handleKeycodes(w http.ResponseWriter, r *http.Request) {
@@ -283,14 +519,28 @@ func (s *Server) handleApplyPreset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var body struct {
-		Preset string `json:"preset"`
+		Preset string `json:"preset"` // "profile-ansi-tr", "profile-dev", "profile-rdp"
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
 
 	cfg := config.Get()
-	if body.Preset == "ansi_turkish" || body.Preset == "" {
-		def := config.DefaultConfig()
-		cfg.Rules = def.Rules
+	presetName := body.Preset
+	if presetName == "" || presetName == "ansi_turkish" {
+		presetName = "profile-ansi-tr"
+	}
+
+	presets := config.BuiltinPresets()
+	for _, p := range presets {
+		if p.ID == presetName {
+			active := cfg.GetActiveProfile()
+			if active != nil {
+				active.Rules = p.Rules
+			} else {
+				cfg.Rules = p.Rules
+			}
+			cfg.SyncActiveRules()
+			break
+		}
 	}
 
 	if err := config.SaveConfig(cfg); err != nil {
@@ -400,6 +650,7 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(200 * time.Millisecond)
 		s.engine.Stop()
 		_ = service.Uninstall()
+		engine.StopMacAppLoop()
 		os.Exit(0)
 	}()
 }

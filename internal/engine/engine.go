@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -22,22 +23,24 @@ type EngineStats struct {
 }
 
 type Engine struct {
-	mu            sync.RWMutex
-	rules         []config.Rule
-	triggerEvents chan TriggerEvent
-	recentLogs    []TriggerEvent
-	listeners     map[chan TriggerEvent]struct{}
-	stats         EngineStats
+	mu                 sync.RWMutex
+	rules              []config.Rule
+	globalExcludedApps []string
+	triggerEvents      chan TriggerEvent
+	recentLogs         []TriggerEvent
+	listeners          map[chan TriggerEvent]struct{}
+	stats              EngineStats
 }
 
 var globalEngine *Engine
 
 func NewEngine() *Engine {
 	e := &Engine{
-		rules:         make([]config.Rule, 0),
-		triggerEvents: make(chan TriggerEvent, 100),
-		recentLogs:    make([]TriggerEvent, 0, 50),
-		listeners:     make(map[chan TriggerEvent]struct{}),
+		rules:              make([]config.Rule, 0),
+		globalExcludedApps: make([]string, 0),
+		triggerEvents:      make(chan TriggerEvent, 100),
+		recentLogs:         make([]TriggerEvent, 0, 50),
+		listeners:          make(map[chan TriggerEvent]struct{}),
 		stats: EngineStats{
 			RuleHits:  make(map[string]int64),
 			StartedAt: time.Now(),
@@ -143,3 +146,21 @@ func (e *Engine) GetStats() EngineStats {
 		StartedAt:      e.stats.StartedAt,
 	}
 }
+
+func (e *Engine) SetGlobalExcludedApps(apps []string) {
+	e.mu.Lock()
+	e.globalExcludedApps = make([]string, len(apps))
+	copy(e.globalExcludedApps, apps)
+	e.mu.Unlock()
+
+	e.updateDarwinGlobalExclusions(strings.Join(apps, ","))
+}
+
+func (e *Engine) GetGlobalExcludedApps() []string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	copied := make([]string, len(e.globalExcludedApps))
+	copy(copied, e.globalExcludedApps)
+	return copied
+}
+

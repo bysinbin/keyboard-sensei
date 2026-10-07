@@ -1,27 +1,45 @@
 # 🥋 Keyboard Sensei (macOS)
 
-**Keyboard Sensei**, İngilizce (ANSI) fiziksel klavyelerde Türkçe Q klavye düzeni kullanılırken yaşanan eksik tuş (`<`, `>`, `|` vb.) sorununu çözmek için tasarlanmış ultra hafif, yerel bir macOS tuş dönüştürücüsüdür.
+**Keyboard Sensei**, İngilizce (ANSI) fiziksel klavyelerde Türkçe Q klavye düzeni kullanılırken yaşanan eksik tuş (`<`, `>`, `|` vb.) sorununu çözmek için tasarlanmış ultra hafif, yerel bir macOS tuş dönüştürücüsü ve makro yönetim aracıdır.
 
-Artık bir betik değil; **tam bir macOS Uygulaması (`Keyboard Sensei.app`)** ve bilgisayarınız açıldığında arka planda sessizce çalışan **macOS Başlangıç Servisi (LaunchAgent)** olarak yapılandırılmıştır.
+Artık bir betik değil; **tam bir macOS Uygulaması (`Keyboard Sensei.app`)**, menü çubuğunda çalışan **Status Bar (Tray)** aracı ve bilgisayarınız açıldığında arka planda sessizce çalışan **macOS Başlangıç Servisi (LaunchAgent)** olarak yapılandırılmıştır.
 
 ---
 
-## 🌟 Neler Yapıldı?
+## 🌟 Öne Çıkan Özellikler
 
-1. **Yerel macOS Uygulaması (`Keyboard Sensei.app`):**
-   * `/Applications/Keyboard Sensei.app` içine kuruldu.
-   * `LSUIElement=true` sayesinde Dock'ta kalabalık yapmaz, arka plan servisi gibi sessizce çalışır.
-   * Özel tasarlanmış macOS uygulama ikonuna (`AppIcon.icns`) sahiptir.
+1. **🍏 macOS Menü Çubuğu (Status Bar Item):**
+   * Menü çubuğunda (sağ üst saat yanı) **🥋 Sensei ikonu**.
+   * Tek tıkla *Duraklat / Başlat*, *Web Panelini Aç*, *Açılışta Otomatik Başlatma* kontrolü ve *Çıkış*.
+   * Motorun aktiflik durumunu anlık gösterir.
 
-2. **Başlangıçta Otomatik Çalışma (macOS LaunchAgent):**
+2. **🎹 Görsel İnteraktif ANSI Klavye Haritası:**
+   * Web panelinde fiziksel ANSI klavye şeması üzerinde hangi tuşların hangi kombinasyonlarla haritalandığını neon ışıklarla gösterir.
+   * Klavyedeki herhangi bir tuşa tıklayarak o tuşa anında yeni bir kural ekleyebilirsiniz.
+
+3. **📂 Çoklu Profil Yönetimi & Hazır Şablonlar:**
+   * **ANSI ➔ Türkçe Q (Varsayılan):** `<` (⌘ö), `>` (⌘ç), `|` (⌥.), `~` (⌥-), `` ` `` (⌥\).
+   * **Geliştirici / Kodlama:** `<<`, `>>`, `=>` ve `{date}` tarih damgası kısayolları.
+   * **Uzak Masaüstü (RDP / Windows):** Windows sanal makineleri için özel karakter haritalaması.
+   * **JSON İçe / Dışa Aktar:** Profillerinizi ve ayarlarınızı tek tıkla yedekleyin veya paylaşın.
+
+4. **🎯 Uygulamaya Özel Kısıtlamalar (App Whitelist & Blacklist):**
+   * İstediğiniz kısayolu yalnızca belirli uygulamalarda aktif yapabilir (örn: `Code`, `Terminal`) veya belirli uygulamalarda devre dışı bırakabilirsiniz (örn: `Figma`, `Slack`).
+   * "Odaktaki Uygulamayı Algıla" butonuyla anlık çalışan uygulamanın adı ve Bundle ID'si otomatik doldurulur.
+
+5. **📝 Dinamik Metin Genişletme & Makrolar (Snippets):**
+   * Kısayollar sadece tek tuş değil; çok karakterli metinleri ve dinamik değişkenleri yazabilir:
+     * `{date}` $\rightarrow$ Günün tarihi (`2026-10-07`)
+     * `{time}` $\rightarrow$ Anlık saat (`21:58:30`)
+     * `{datetime}` $\rightarrow$ Tarih ve saat
+     * `{uuid}` $\rightarrow$ Benzersiz rastgele ID
+
+6. **🚀 macOS Başlangıç Servisi (LaunchAgent):**
    * Bilgisayarınızı yeniden başlattığınızda veya oturum açtığınızda **arka planda otomatik başlar**.
-   * Web paneli üzerinden (`http://localhost:5252`) **"🚀 Otomatik Başlat"** anahtarı ile tek tıkla açılıp kapatılabilir.
+   * Web paneli veya Menü Çubuğu üzerinden tek tıkla açılıp kapatılabilir.
 
-3. **Modern Web Yönetim Paneli (`http://localhost:5252`):**
-   * **İnteraktif Tuş Kaydedici:** İstediğiniz tuşa basarak kısayolu otomatik yakalayın.
-   * **Canlı Test Alanı (Sandbox):** Kısayollarınızı hemen test edin.
-   * **Canlı Olay Akışı:** Tuş dönüşümlerini anlık izleyin.
-   * **Tek Tıkla ANSI Şablonu:** Eksik karakterleri (`<`, `>`, `|`, `~`, `` ` ``) tek tıkla yükler.
+7. **🧪 Kapsamlı Test Kapsamı:**
+   * `internal/config`, `internal/engine` ve `internal/web` modülleri için tam birim testleri içerir (`go test -v ./...`).
 
 ---
 
@@ -38,7 +56,7 @@ macOS'in klavye tuşlarını yakalayabilmesi için uygulamanın bir kereliğe ma
 ## 🕹️ CLI Komutları (İsteğe Bağlı)
 
 ```bash
-# Servisi başlangıca kur (Zaten kuruldu)
+# Servisi başlangıca kur
 /Applications/Keyboard\ Sensei.app/Contents/MacOS/keyboard-sensei --install
 
 # Servisi başlangıçtan kaldır
@@ -61,3 +79,10 @@ Microsoft Remote Desktop (RDP) varsayılan olarak donanımsal *Scancode* modunda
 2. **Keyboard Mode** seçeneğini **"Unicode"** olarak değiştirin (veya doğrudan kısayoluna basın: **`⌃ + ⌘ + U`** / Control + Command + U).
 3. Bu ayardan sonra Keyboard Sensei ile ürettiğiniz tüm karakterler Windows oturumuna kusursuz iletilecektir.
 
+---
+
+## 🧪 Testleri Çalıştırma
+
+```bash
+go test -v ./...
+```

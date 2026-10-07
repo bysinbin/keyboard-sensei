@@ -26,9 +26,21 @@
           </svg>
         </div>
         <div class="brand-text">
-          <h1>Keyboard Sensei</h1>
+          <div class="brand-title-row">
+            <h1>Keyboard Sensei</h1>
+            <span class="version-tag" id="app-version">v1.1.0</span>
+          </div>
           <span class="brand-subtitle">macOS ANSI & Tuş Dönüştürücü</span>
         </div>
+      </div>
+
+      <!-- Center Profile Selector -->
+      <div class="profile-nav-group glass-card-sm">
+        <span class="profile-icon">📂</span>
+        <select id="profile-select" class="profile-dropdown" title="Aktif Klavye Profilini Değiştir">
+          <!-- Populated dynamically -->
+        </select>
+        <button id="btn-manage-profiles" class="btn btn-ghost btn-sm" title="Profilleri Yönet">⚙️</button>
       </div>
 
       <div class="nav-controls">
@@ -55,7 +67,7 @@
             <circle cx="12" cy="12" r="3"></circle>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
           </svg>
-          <span>Sistem İzinleri</span>
+          <span>İzinler</span>
         </button>
 
         <button id="btn-quit-app" class="btn btn-danger-ghost" title="Uygulamayı ve Servisi Tamamen Kapat">
@@ -76,7 +88,7 @@
 
     <!-- Main Content Grid -->
     <main class="dashboard-grid">
-      <!-- Left Column: Rules & Actions -->
+      <!-- Left Column: Keyboard & Rules -->
       <section class="main-column">
         <!-- Quick Stats Cards -->
         <div class="stats-row">
@@ -89,7 +101,7 @@
           <div class="stat-card glass-card">
             <span class="stat-label">Aktif Kurallar</span>
             <div class="stat-value" id="stat-active-rules">0</div>
-            <span class="stat-sub">Arka planda hazır</span>
+            <span class="stat-sub" id="stat-profile-sub">Varsayılan Profil</span>
           </div>
 
           <div class="stat-card glass-card">
@@ -99,32 +111,43 @@
           </div>
         </div>
 
-        <!-- Preset Banner -->
-        <div class="preset-banner glass-card">
-          <div class="preset-info">
-            <span class="preset-badge">Önerilen Şablon</span>
-            <h3>ANSI Klavye Türkçe Karakter Paketi</h3>
-            <p>Eksik olan <code>&lt;</code> (⌘ö), <code>&gt;</code> (⌘ç) ve <code>|</code> (⌥.) tuşlarını anında kurun.</p>
+        <!-- Visual ANSI Keyboard Interactive Layout -->
+        <section class="keyboard-section glass-card">
+          <div class="keyboard-section-header">
+            <div>
+              <h3>🎹 Görsel ANSI Klavye Haritası</h3>
+              <p class="section-desc">Kısayol atanmış tuşlar parlar. İstediğiniz tuşa tıklayarak anında kural ekleyebilirsiniz.</p>
+            </div>
+            <div class="keyboard-legend">
+              <span class="legend-badge active-key-badge"><span class="legend-dot active-dot"></span> Atanmış Tuş</span>
+              <span class="legend-badge"><span class="legend-dot special-dot"></span> Eksik ANSI Tuş</span>
+            </div>
           </div>
-          <button id="btn-apply-preset" class="btn btn-primary">
-            <span>✨ Şablonu Uygula</span>
-          </button>
-        </div>
+          <div class="virtual-keyboard-wrapper">
+            <div class="virtual-keyboard" id="virtual-keyboard">
+              <!-- Keyboard keys rendered via JS -->
+            </div>
+          </div>
+        </section>
 
         <!-- Rules Section -->
         <section class="section-card glass-card">
           <div class="section-header">
             <div>
-              <h2>Klavye Kuralları</h2>
-              <p class="section-desc">Hangi tuş kombinasyonunun hangi karaktere dönüşeceğini yönetin.</p>
+              <h2>Klavye Kuralları (<span id="profile-name-header">Aktif Profil</span>)</h2>
+              <p class="section-desc">Hangi tuş kombinasyonunun hangi karaktere veya metne dönüşeceğini yönetin.</p>
             </div>
-            <button id="btn-add-rule" class="btn btn-primary">
-              <span>+ Yeni Kural Ekle</span>
-            </button>
+            <div class="section-actions">
+              <button id="btn-export-json" class="btn btn-secondary btn-sm" title="JSON Olarak Dışa Aktar">💾 Dışa Aktar</button>
+              <button id="btn-import-json-trigger" class="btn btn-secondary btn-sm" title="JSON Dosyasından Yükle">📥 İçe Aktar</button>
+              <input type="file" id="file-import-input" accept=".json" class="hidden">
+              <button id="btn-add-rule" class="btn btn-primary">
+                <span>+ Yeni Kural Ekle</span>
+              </button>
+            </div>
           </div>
 
           <div id="rules-container" class="rules-list">
-            <!-- Rules dynamically rendered here -->
             <div class="loading-placeholder">Kurallar yükleniyor...</div>
           </div>
         </section>
@@ -233,7 +256,16 @@
 
           <div class="form-group flex-1">
             <label for="form-output">Yazılacak Karakter / Metin</label>
-            <input type="text" id="form-output" class="form-control text-center text-mono highlight-input" placeholder="örn: < veya > veya |" maxlength="32" required>
+            <input type="text" id="form-output" class="form-control text-center text-mono highlight-input" placeholder="örn: < veya > veya |" maxlength="512" required>
+            
+            <!-- Dynamic Token Chips -->
+            <div class="token-chips">
+              <span class="token-title">Dinamik Değişkenler:</span>
+              <button type="button" class="btn-token" data-token="{date}">+ {date}</button>
+              <button type="button" class="btn-token" data-token="{time}">+ {time}</button>
+              <button type="button" class="btn-token" data-token="{datetime}">+ {datetime}</button>
+              <button type="button" class="btn-token" data-token="{uuid}">+ {uuid}</button>
+            </div>
           </div>
         </div>
 
@@ -247,11 +279,69 @@
           <input type="text" id="form-description" class="form-control" placeholder="örn: ANSI klavyede eksik olan < işaretini yazar">
         </div>
 
+        <!-- Application Whitelist / Blacklist -->
+        <div class="form-group app-filters-box">
+          <div class="filters-header">
+            <label>🎯 Uygulama Filtreleri (Opsiyonel)</label>
+            <button type="button" id="btn-detect-app" class="btn btn-ghost btn-xs">🎯 Odaktaki Uygulamayı Algıla</button>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label for="form-target-apps" class="sub-label">Yalnızca bu uygulamalarda aktif</label>
+              <input type="text" id="form-target-apps" class="form-control" placeholder="örn: Code, Terminal, Alacritty">
+            </div>
+            <div class="form-group flex-1">
+              <label for="form-excluded-apps" class="sub-label">Bu uygulamalarda devre dışı</label>
+              <input type="text" id="form-excluded-apps" class="form-control" placeholder="örn: Figma, Slack">
+            </div>
+          </div>
+          <span class="filter-tip" id="detected-app-tip"></span>
+        </div>
+
         <div class="modal-footer">
           <button type="button" id="btn-cancel-modal" class="btn btn-secondary">Vazgeç</button>
           <button type="submit" id="btn-save-rule" class="btn btn-primary">Kaydet</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- Modal: Profile Manager -->
+  <div id="profile-modal" class="modal-overlay hidden">
+    <div class="modal-box glass-card">
+      <div class="modal-header">
+        <h3>Profil Yöneticisi</h3>
+        <button id="btn-close-profile-modal" class="btn-close" aria-label="Kapat">&times;</button>
+      </div>
+
+      <div class="profile-manager-content">
+        <div class="profile-list-section">
+          <h4>Mevcut Profiller</h4>
+          <div id="modal-profiles-list" class="modal-profiles-list">
+            <!-- Populated via JS -->
+          </div>
+        </div>
+
+        <div class="new-profile-section">
+          <h4>Yeni Profil Oluştur</h4>
+          <form id="new-profile-form">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <input type="text" id="new-profile-name" class="form-control" placeholder="Profil Adı (örn: Oyun, Sunucu)" required>
+              </div>
+              <div class="form-group">
+                <select id="new-profile-preset" class="form-control">
+                  <option value="profile-ansi-tr">Şablon: ANSI Türkçe</option>
+                  <option value="profile-dev">Şablon: Geliştirici</option>
+                  <option value="profile-rdp">Şablon: Uzak Masaüstü</option>
+                  <option value="empty">Boş Profil</option>
+                </select>
+              </div>
+              <button type="submit" class="btn btn-primary">+ Ekle</button>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 

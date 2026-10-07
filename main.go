@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 func main() {
 	portFlag := flag.Int("port", 0, "Web arayüzü port numarası (varsayılan: 5252)")
 	openBrowser := flag.Bool("open", true, "Başlangıçta tarayıcıyı otomatik aç")
+	trayFlag := flag.Bool("tray", true, "macOS Menü Çubuğu (Status Bar) ikonunu göster")
 	installService := flag.Bool("install", false, "macOS başlangıç servisi (LaunchAgent) olarak kur")
 	uninstallService := flag.Bool("uninstall", false, "macOS başlangıç servisini kaldır")
 	serviceStatus := flag.Bool("service-status", false, "Servis durumunu göster")
@@ -56,6 +58,7 @@ func main() {
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║               🥋 KEYBOARD SENSEI (macOS)                 ║")
 	fmt.Println("║       ANSI Klavyeler İçin Türkçe Tuş Dönüştürücü         ║")
+	fmt.Println("║                 Sürüm: v1.1.0                            ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
 
 	// 1. Load Configuration
@@ -72,6 +75,7 @@ func main() {
 	// 2. Initialize Engine
 	eng := engine.NewEngine()
 	eng.UpdateRules(cfg.Rules)
+	eng.SetGlobalExcludedApps(cfg.ExcludedApps)
 
 	// 3. Check Accessibility
 	if !eng.IsAccessibilityTrusted() {
@@ -87,7 +91,12 @@ func main() {
 		fmt.Printf("⚠️  Event Tap başlatılamadı: %v\n", err)
 		fmt.Println("ℹ️  Web arayüzünden izni verdikten sonra servis otomatik aktifleşecektir.")
 	} else {
-		fmt.Printf("🎯 %d adet klavye kuralı aktif olarak dinleniyor.\n", len(cfg.Rules))
+		activeProfile := cfg.GetActiveProfile()
+		profileName := "Varsayılan"
+		if activeProfile != nil {
+			profileName = activeProfile.Name
+		}
+		fmt.Printf("🎯 Aktif Profil: %s (%d kural aktif dinleniyor)\n", profileName, len(cfg.Rules))
 	}
 
 	// 5. Start Web Dashboard
@@ -107,14 +116,29 @@ func main() {
 	}
 
 	fmt.Printf("\n🚀 Panel hazır: %s\n", url)
-	fmt.Println("Çıkmak için CTRL+C tuşlarına basın.\n")
+	if *trayFlag && cfg.ShowTrayIcon {
+		fmt.Println("🍏 Menü çubuğunda (Menu Bar) 🥋 ikonu aktif.")
+	}
+	fmt.Println("Çıkmak için CTRL+C tuşlarına basın.")
 
-	// 6. Graceful shutdown
+	// 6. Graceful shutdown handler
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
-	<-sigChan
 
-	fmt.Println("\n🛑 Kapatılıyor...")
-	eng.Stop()
-	fmt.Println("Güle güle!")
+	go func() {
+		<-sigChan
+		fmt.Println("\n🛑 Kapatılıyor...")
+		eng.Stop()
+		engine.StopMacAppLoop()
+		os.Exit(0)
+	}()
+
+	if *trayFlag && cfg.ShowTrayIcon {
+		runtime.LockOSThread()
+		engine.RunMacAppLoop()
+	} else {
+		<-sigChan
+		eng.Stop()
+		fmt.Println("Güle güle!")
+	}
 }

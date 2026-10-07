@@ -47,7 +47,7 @@ cat <<EOF > "${CONTENTS_DIR}/Info.plist"
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -63,6 +63,8 @@ EOF
 # 5. Sign the App Bundle properly
 echo "🔏 Signing app bundle..."
 find "${APP_DIR}" -name ".DS_Store" -delete
+find "${APP_DIR}" -name "._*" -delete
+dot_clean "${APP_DIR}"
 xattr -cr "${APP_DIR}"
 codesign --force --deep --sign - "${APP_DIR}"
 

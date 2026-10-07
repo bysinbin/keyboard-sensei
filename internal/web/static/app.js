@@ -1,8 +1,10 @@
-// Keyboard Sensei — Web Interface Logic
+// Keyboard Sensei — Web Interface Logic v1.1.0
 
 let state = {
   status: null,
   rules: [],
+  profiles: [],
+  activeProfileID: 'profile-ansi-tr',
   keycodes: [],
   recordingActive: false,
   recordedShortcut: null
@@ -44,55 +46,100 @@ const CODE_TO_MACOS_KEYCODE = {
   // Controls & Navigation
   'Space': 49, 'Enter': 36, 'NumpadEnter': 76, 'Tab': 48, 'Backspace': 51, 'Escape': 53,
   'ArrowLeft': 123, 'ArrowRight': 124, 'ArrowDown': 125, 'ArrowUp': 126,
-  'Home': 115, 'End': 119, 'PageUp': 116, 'PageDown': 121, 'Delete': 117,
-
-  // Numpad
-  'Numpad0': 82, 'Numpad1': 83, 'Numpad2': 84, 'Numpad3': 85, 'Numpad4': 86,
-  'Numpad5': 87, 'Numpad6': 88, 'Numpad7': 89, 'Numpad8': 91, 'Numpad9': 92,
-  'NumpadDecimal': 65, 'NumpadMultiply': 67, 'NumpadAdd': 69, 'NumpadDivide': 75,
-  'NumpadSubtract': 78, 'NumpadEqual': 81
+  'Home': 115, 'End': 119, 'PageUp': 116, 'PageDown': 121, 'Delete': 117
 };
 
 // Fallback: Browser event.keyCode (VK codes) to macOS virtual keycodes
 const VK_TO_MACOS_KEYCODE = {
-  // Letters A-Z
   65: 0,  83: 1,  68: 2,  70: 3,  72: 4,  71: 5,  90: 6,  88: 7,
   67: 8,  86: 9,  66: 11, 81: 12, 87: 13, 69: 14, 82: 15, 89: 16,
   84: 17, 85: 32, 73: 34, 79: 31, 80: 35, 74: 38, 75: 40, 76: 37,
   78: 45, 77: 46,
-
-  // Digits 0-9
   49: 18, 50: 19, 51: 20, 52: 21, 53: 23,
   54: 22, 55: 26, 56: 28, 57: 25, 48: 29,
-
-  // Punctuation & Special (Crucial for Turkish Q & ANSI / ISO)
-  188: 43, // VK_OEM_COMMA -> macOS 43 (Turkish 'ö' / ANSI Comma)
-  190: 47, // VK_OEM_PERIOD -> macOS 47 (Turkish 'ç' / ANSI Period)
-  191: 44, // VK_OEM_2 -> macOS 44 (Turkish '.' / ANSI Slash)
-  220: 42, // VK_OEM_5 -> macOS 42 (Turkish ',' / ANSI Backslash)
-  186: 41, // VK_OEM_1 -> macOS 41 (Turkish 'ş' / ANSI Semicolon)
-  59:  41, // Firefox Semicolon
-  222: 39, // VK_OEM_7 -> macOS 39 (Turkish 'i' / ANSI Quote)
-  219: 33, // VK_OEM_4 -> macOS 33 (Turkish 'ğ' / ANSI BracketLeft)
-  221: 30, // VK_OEM_6 -> macOS 30 (Turkish 'ü' / ANSI BracketRight)
-  189: 27, // VK_OEM_MINUS -> macOS 27 ('-')
-  173: 27, // Firefox Minus
-  187: 24, // VK_OEM_PLUS -> macOS 24 ('=')
-  61:  24, // Firefox Equal
-  192: 50, // VK_OEM_3 (Backquote/Grave) -> macOS 50 (Turkish '"' çift tırnak)
-  226: 50, // VK_OEM_102 (IntlBackslash) -> macOS 50 (ISO '< >')
-
-  // Common Controls
-  32: 49,  // Space
-  13: 36,  // Enter
-  9:  48,  // Tab
-  8:  51,  // Backspace
-  27: 53,  // Escape
-  37: 123, // Left
-  39: 124, // Right
-  40: 125, // Down
-  38: 126  // Up
+  188: 43, 190: 47, 191: 44, 220: 42, 186: 41, 59: 41, 222: 39,
+  219: 33, 221: 30, 189: 27, 173: 27, 187: 24, 61: 24,
+  192: 50, 226: 50, 32: 49, 13: 36, 9: 48, 8: 51, 27: 53
 };
+
+// Physical ANSI Keyboard Rows for Visualization
+const KEYBOARD_LAYOUT = [
+  // Row 1: Numbers & symbols
+  [
+    { main: '"', sub: '~', code: 50, special: true },
+    { main: '1', sub: '!', code: 18 },
+    { main: '2', sub: "'", code: 19 },
+    { main: '3', sub: '^', code: 20 },
+    { main: '4', sub: '+', code: 21 },
+    { main: '5', sub: '%', code: 23 },
+    { main: '6', sub: '&', code: 22 },
+    { main: '7', sub: '/', code: 26 },
+    { main: '8', sub: '(', code: 28 },
+    { main: '9', sub: ')', code: 25 },
+    { main: '0', sub: '=', code: 29 },
+    { main: '*', sub: '-', code: 27, special: true },
+    { main: '-', sub: '_', code: 24 },
+    { main: '⌫', sub: '', code: 51, mod: true, cls: 'w-1-5' }
+  ],
+  // Row 2: QWERTY top row
+  [
+    { main: 'Tab', sub: '⇥', code: 48, mod: true, cls: 'w-1-5' },
+    { main: 'Q', code: 12 },
+    { main: 'W', code: 13 },
+    { main: 'E', code: 14 },
+    { main: 'R', code: 15 },
+    { main: 'T', code: 17 },
+    { main: 'Y', code: 16 },
+    { main: 'U', code: 32 },
+    { main: 'I', sub: 'İ', code: 34 },
+    { main: 'O', code: 31 },
+    { main: 'P', code: 35 },
+    { main: 'Ğ', sub: '[', code: 33, special: true },
+    { main: 'Ü', sub: ']', code: 30, special: true },
+    { main: ',', sub: '\\', code: 42, special: true, cls: 'w-1-5' }
+  ],
+  // Row 3: Home row
+  [
+    { main: 'Caps', code: null, mod: true, cls: 'w-1-75' },
+    { main: 'A', code: 0 },
+    { main: 'S', code: 1 },
+    { main: 'D', code: 2 },
+    { main: 'F', code: 3 },
+    { main: 'G', code: 5 },
+    { main: 'H', code: 4 },
+    { main: 'J', code: 38 },
+    { main: 'K', code: 40 },
+    { main: 'L', code: 37 },
+    { main: 'Ş', sub: ';', code: 41, special: true },
+    { main: 'İ', sub: "'", code: 39, special: true },
+    { main: 'Enter', sub: '↩', code: 36, mod: true, cls: 'w-2-25' }
+  ],
+  // Row 4: Bottom letter row
+  [
+    { main: 'Shift', sub: '⇧', code: null, mod: true, cls: 'w-2-25' },
+    { main: 'Z', code: 6 },
+    { main: 'X', code: 7 },
+    { main: 'C', code: 8 },
+    { main: 'V', code: 9 },
+    { main: 'B', code: 11 },
+    { main: 'N', code: 45 },
+    { main: 'M', code: 46 },
+    { main: 'Ö', sub: '< (Virgül)', code: 43, special: true },
+    { main: 'Ç', sub: '> (Nokta)', code: 47, special: true },
+    { main: '.', sub: '| (Bölü)', code: 44, special: true },
+    { main: 'Shift', sub: '⇧', code: null, mod: true, cls: 'w-2-25' }
+  ],
+  // Row 5: Modifiers & Space
+  [
+    { main: '⌃ Ctrl', code: null, mod: true, cls: 'w-1-25' },
+    { main: '⌥ Opt', code: null, mod: true, cls: 'w-1-25' },
+    { main: '⌘ Cmd', code: null, mod: true, cls: 'w-1-5' },
+    { main: 'Space', sub: '', code: 49, cls: 'w-space' },
+    { main: '⌘ Cmd', code: null, mod: true, cls: 'w-1-5' },
+    { main: '⌥ Opt', code: null, mod: true, cls: 'w-1-25' },
+    { main: '⌃ Ctrl', code: null, mod: true, cls: 'w-1-25' }
+  ]
+];
 
 document.addEventListener('DOMContentLoaded', () => {
   initApp();
@@ -101,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initApp() {
   await loadKeycodes();
   await refreshStatus();
-  await loadRules();
+  await loadProfiles();
   setupEventListeners();
   initSSE();
 
@@ -135,13 +182,31 @@ async function loadKeycodes() {
   }
 }
 
+async function loadProfiles() {
+  try {
+    const res = await fetch('/api/profiles');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.profiles = data.profiles || [];
+    state.activeProfileID = data.active_profile_id;
+
+    renderProfileSelector();
+    renderModalProfilesList();
+
+    // Fetch active rules
+    await loadRules();
+  } catch (err) {
+    console.error('Profiles fetch failed:', err);
+  }
+}
+
 async function loadRules() {
   try {
-    const res = await fetch('/api/config');
+    const res = await fetch('/api/rules');
     if (!res.ok) return;
-    const cfg = await res.json();
-    state.rules = cfg.rules || [];
+    state.rules = await res.json();
     renderRules(state.rules);
+    renderVirtualKeyboard();
     updateStats();
   } catch (err) {
     console.error('Rules fetch failed:', err);
@@ -187,6 +252,57 @@ function renderStatus(status) {
   if (status.stats) {
     document.getElementById('stat-total-triggers').textContent = status.stats.total_triggered || 0;
   }
+
+  if (status.active_profile_name) {
+    const headerProfile = document.getElementById('profile-name-header');
+    if (headerProfile) headerProfile.textContent = status.active_profile_name;
+    const subProfile = document.getElementById('stat-profile-sub');
+    if (subProfile) subProfile.textContent = status.active_profile_name;
+  }
+}
+
+function renderProfileSelector() {
+  const select = document.getElementById('profile-select');
+  if (!select) return;
+
+  select.innerHTML = state.profiles.map(p => {
+    const icon = p.icon || '📁';
+    const isSelected = p.id === state.activeProfileID ? 'selected' : '';
+    return `<option value="${p.id}" ${isSelected}>${icon} ${escapeHtml(p.name)}</option>`;
+  }).join('');
+
+  const active = state.profiles.find(p => p.id === state.activeProfileID);
+  if (active) {
+    const headerProfile = document.getElementById('profile-name-header');
+    if (headerProfile) headerProfile.textContent = active.name;
+    const subProfile = document.getElementById('stat-profile-sub');
+    if (subProfile) subProfile.textContent = active.name;
+  }
+}
+
+function renderModalProfilesList() {
+  const list = document.getElementById('modal-profiles-list');
+  if (!list) return;
+
+  list.innerHTML = state.profiles.map(p => {
+    const isActive = p.id === state.activeProfileID;
+    const icon = p.icon || '📁';
+    return `
+      <div class="modal-profile-item ${isActive ? 'active' : ''}">
+        <div class="profile-item-info">
+          <span class="profile-item-icon">${icon}</span>
+          <div>
+            <div class="profile-item-name">${escapeHtml(p.name)} ${isActive ? '⭐ (Aktif)' : ''}</div>
+            <div class="profile-item-desc">${escapeHtml(p.description || '')} (${p.rules ? p.rules.length : 0} kural)</div>
+          </div>
+        </div>
+        <div class="profile-item-actions">
+          ${!isActive ? `<button class="btn btn-secondary btn-sm btn-activate-profile" data-id="${p.id}">Aktif Yap</button>` : ''}
+          ${state.profiles.length > 1 ? `<button class="btn btn-danger-ghost btn-sm btn-delete-profile" data-id="${p.id}">Sil</button>` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
 }
 
 function updateStats() {
@@ -194,12 +310,76 @@ function updateStats() {
   document.getElementById('stat-active-rules').textContent = activeCount;
 }
 
+// -------------------------------------------------------------
+// Virtual Keyboard Rendering
+// -------------------------------------------------------------
+function renderVirtualKeyboard() {
+  const container = document.getElementById('virtual-keyboard');
+  if (!container) return;
+
+  // Map keycode to rules
+  const ruleMap = {};
+  state.rules.forEach(rule => {
+    if (rule.enabled) {
+      if (!ruleMap[rule.keycode]) ruleMap[rule.keycode] = [];
+      ruleMap[rule.keycode].push(rule);
+    }
+  });
+
+  container.innerHTML = KEYBOARD_LAYOUT.map(row => {
+    const keysHtml = row.map(key => {
+      const cls = ['kb-key'];
+      if (key.cls) cls.push(key.cls);
+      if (key.mod) cls.push('key-mod');
+      if (key.special) cls.push('key-special');
+
+      let badgeHtml = '';
+      let tooltipText = '';
+
+      if (key.code !== null && ruleMap[key.code]) {
+        cls.push('key-active');
+        const rList = ruleMap[key.code];
+        const outputs = rList.map(r => r.output).join(', ');
+        badgeHtml = `<span class="key-badge" title="${escapeHtml(outputs)}">${escapeHtml(rList[0].output)}</span>`;
+        tooltipText = rList.map(r => `${formatShortcutText(r.modifiers, r.keycode)} ➔ ${r.output}`).join(' | ');
+      }
+
+      const dataAttr = key.code !== null ? `data-keycode="${key.code}"` : '';
+      const titleAttr = tooltipText ? `title="${escapeHtml(tooltipText)}"` : '';
+
+      return `
+        <div class="${cls.join(' ')}" ${dataAttr} ${titleAttr}>
+          <span class="key-main">${escapeHtml(key.main)}</span>
+          ${key.sub ? `<span class="key-sub">${escapeHtml(key.sub)}</span>` : ''}
+          ${badgeHtml}
+        </div>
+      `;
+    }).join('');
+
+    return `<div class="kb-row">${keysHtml}</div>`;
+  }).join('');
+}
+
+function formatShortcutText(modifiers, keycode) {
+  const syms = [];
+  const mods = modifiers || [];
+  if (mods.includes('ctrl')) syms.push('⌃');
+  if (mods.includes('alt')) syms.push('⌥');
+  if (mods.includes('shift')) syms.push('⇧');
+  if (mods.includes('cmd')) syms.push('⌘');
+
+  let keyStr = `#${keycode}`;
+  const info = state.keycodes.find(k => k.code === keycode);
+  if (info) keyStr = info.name.toUpperCase();
+  return syms.concat(keyStr).join(' + ');
+}
+
 function renderRules(rules) {
   const container = document.getElementById('rules-container');
   if (!rules || rules.length === 0) {
     container.innerHTML = `
       <div class="stream-empty">
-        Henüz tanımlı kural yok. Yukarıdaki "Şablonu Uygula" butonuna basabilir veya "+ Yeni Kural Ekle" ile ekleyebilirsiniz.
+        Bu profilde henüz tanımlı kural yok. Yukarıdaki sanal klavyeden bir tuşa tıklayabilir veya "+ Yeni Kural Ekle" ile başlayabilirsiniz.
       </div>
     `;
     return;
@@ -207,6 +387,7 @@ function renderRules(rules) {
 
   container.innerHTML = rules.map(rule => {
     const shortcutHtml = formatShortcutHtml(rule.modifiers, rule.keycode);
+    const hasApps = (rule.target_apps && rule.target_apps.length > 0) || (rule.excluded_apps && rule.excluded_apps.length > 0);
     return `
       <div class="rule-card ${rule.enabled ? '' : 'disabled'}" data-id="${rule.id}">
         <div class="rule-left">
@@ -216,7 +397,11 @@ function renderRules(rules) {
           <span class="arrow-divider">➔</span>
           <div class="output-pill">${escapeHtml(rule.output)}</div>
           <div class="rule-details">
-            <span class="rule-name">${escapeHtml(rule.name || 'Özel Kural')}</span>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span class="rule-name">${escapeHtml(rule.name || 'Özel Kural')}</span>
+              ${rule.is_snippet ? '<span class="version-tag" style="background:rgba(56,189,248,0.15);color:#38bdf8;border-color:rgba(56,189,248,0.3);">Makro</span>' : ''}
+              ${hasApps ? '<span class="version-tag" style="background:rgba(168,85,247,0.15);color:#c084fc;border-color:rgba(168,85,247,0.3);">Uygulama Filtresi</span>' : ''}
+            </div>
             <span class="rule-desc">${escapeHtml(rule.description || '')}</span>
           </div>
         </div>
@@ -262,9 +447,8 @@ function populateKeycodeDropdown() {
   const select = document.getElementById('form-keycode');
   select.innerHTML = '<option value="">Tuş Seçin...</option>';
 
-  // Group by priority
   const turkishAnsiGroup = document.createElement('optgroup');
-  turkishAnsiGroup.label = 'Türkçe Q / ANSI / ISO Özel Tuşları (Önerilen)';
+  turkishAnsiGroup.label = 'Türkçe Q / ANSI Özel Tuşları (Önerilen)';
 
   const otherGroup = document.createElement('optgroup');
   otherGroup.label = 'Diğer Standart Tuşlar';
@@ -312,11 +496,9 @@ function setupKeyRecorder() {
   box.addEventListener('keydown', (e) => {
     if (!state.recordingActive) return;
 
-    // Prevent default browser shortcuts while recording (like Cmd+W, Cmd+S, etc.)
     e.preventDefault();
     e.stopPropagation();
 
-    // Ignore pure modifier presses
     if (['Meta', 'Control', 'Alt', 'Shift'].includes(e.key)) {
       return;
     }
@@ -332,11 +514,9 @@ function setupKeyRecorder() {
       keycode = VK_TO_MACOS_KEYCODE[e.keyCode];
     }
     if (keycode === undefined) {
-      // Final fallback
       keycode = e.keyCode;
     }
 
-    // Update state
     state.recordedShortcut = {
       modifiers: mods,
       keycode: keycode,
@@ -344,13 +524,11 @@ function setupKeyRecorder() {
       key: e.key
     };
 
-    // Update checkboxes
     document.getElementById('mod-cmd').checked = mods.includes('cmd');
     document.getElementById('mod-alt').checked = mods.includes('alt');
     document.getElementById('mod-ctrl').checked = mods.includes('ctrl');
     document.getElementById('mod-shift').checked = mods.includes('shift');
 
-    // Update dropdown: dynamically ensure option exists so it is never blank
     const selectEl = document.getElementById('form-keycode');
     let opt = selectEl.querySelector(`option[value="${keycode}"]`);
     if (!opt && keycode !== undefined && !isNaN(keycode)) {
@@ -361,7 +539,6 @@ function setupKeyRecorder() {
     }
     selectEl.value = keycode;
 
-    // Show badges
     prompt.classList.add('hidden');
     display.classList.remove('hidden');
     badges.innerHTML = formatShortcutHtml(mods, keycode);
@@ -376,6 +553,198 @@ function setupKeyRecorder() {
 // -------------------------------------------------------------
 function setupEventListeners() {
   setupKeyRecorder();
+
+  // Profile Selection Change
+  const profileSelect = document.getElementById('profile-select');
+  if (profileSelect) {
+    profileSelect.addEventListener('change', async (e) => {
+      const selectedId = e.target.value;
+      try {
+        const res = await fetch('/api/profiles/activate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile_id: selectedId })
+        });
+        if (res.ok) {
+          state.activeProfileID = selectedId;
+          await loadProfiles();
+          showNotification('Aktif profil değiştirildi!');
+        }
+      } catch (err) {
+        alert('Profil değiştirme hatası: ' + err);
+      }
+    });
+  }
+
+  // Manage Profiles Modal Trigger
+  document.getElementById('btn-manage-profiles').addEventListener('click', () => {
+    document.getElementById('profile-modal').classList.remove('hidden');
+  });
+
+  document.getElementById('btn-close-profile-modal').addEventListener('click', () => {
+    document.getElementById('profile-modal').classList.add('hidden');
+  });
+
+  // Activate Profile from Modal
+  document.getElementById('modal-profiles-list').addEventListener('click', async (e) => {
+    const actBtn = e.target.closest('.btn-activate-profile');
+    if (actBtn) {
+      const pId = actBtn.dataset.id;
+      await fetch('/api/profiles/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile_id: pId })
+      });
+      state.activeProfileID = pId;
+      await loadProfiles();
+      showNotification('Profil aktif edildi!');
+      return;
+    }
+
+    const delBtn = e.target.closest('.btn-delete-profile');
+    if (delBtn) {
+      const pId = delBtn.dataset.id;
+      if (confirm('Bu profili ve içindeki tüm kuralları silmek istediğinizden emin misiniz?')) {
+        const res = await fetch(`/api/profiles/${pId}`, { method: 'DELETE' });
+        if (res.ok) {
+          await loadProfiles();
+          showNotification('Profil silindi.');
+        } else {
+          alert('Profil silinemedi.');
+        }
+      }
+      return;
+    }
+  });
+
+  // New Profile Form
+  document.getElementById('new-profile-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const name = document.getElementById('new-profile-name').value.trim();
+    const preset = document.getElementById('new-profile-preset').value;
+    if (!name) return;
+
+    let rules = [];
+    if (preset === 'profile-ansi-tr') {
+      rules = [
+        { id: `rule-${Date.now()}-1`, name: "Küçüktür (<)", modifiers: ["cmd"], keycode: 43, key_label: "ö", output: "<", enabled: true },
+        { id: `rule-${Date.now()}-2`, name: "Büyüktür (>)", modifiers: ["cmd"], keycode: 47, key_label: "ç", output: ">", enabled: true },
+        { id: `rule-${Date.now()}-3`, name: "Dikey Çizgi (|)", modifiers: ["alt"], keycode: 44, key_label: ".", output: "|", enabled: true }
+      ];
+    }
+
+    const newP = {
+      id: `profile-${Date.now()}`,
+      name: name,
+      icon: '✨',
+      description: `${name} özel profili`,
+      rules: rules
+    };
+
+    const res = await fetch('/api/profiles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newP)
+    });
+
+    if (res.ok) {
+      document.getElementById('new-profile-name').value = '';
+      await loadProfiles();
+      showNotification('Yeni profil oluşturuldu!');
+    }
+  });
+
+  // Virtual Keyboard Key Click -> Open Modal Pre-filled
+  document.getElementById('virtual-keyboard').addEventListener('click', (e) => {
+    const keyEl = e.target.closest('.kb-key');
+    if (!keyEl || !keyEl.dataset.keycode) return;
+
+    const keycode = parseInt(keyEl.dataset.keycode, 10);
+    if (!isNaN(keycode)) {
+      openModalWithKeycode(keycode);
+    }
+  });
+
+  // Dynamic Token Chips in Modal
+  document.querySelectorAll('.btn-token').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const token = btn.dataset.token;
+      const outputInput = document.getElementById('form-output');
+      outputInput.value += token;
+      outputInput.focus();
+    });
+  });
+
+  // Detect Active App Button in Modal
+  const detectAppBtn = document.getElementById('btn-detect-app');
+  if (detectAppBtn) {
+    detectAppBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/active_app');
+        if (res.ok) {
+          const app = await res.json();
+          const tip = document.getElementById('detected-app-tip');
+          if (app.name) {
+            tip.innerHTML = `Algılanan: <strong>${escapeHtml(app.name)}</strong> (${escapeHtml(app.bundle_id)}) — <a href="#" id="link-add-target" style="color:#38bdf8;">Yalnızca bu uygulamaya ekle</a> | <a href="#" id="link-add-exclude" style="color:#ef4444;">İstisnalara ekle</a>`;
+            
+            document.getElementById('link-add-target')?.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              const inp = document.getElementById('form-target-apps');
+              inp.value = inp.value ? `${inp.value}, ${app.name}` : app.name;
+            });
+
+            document.getElementById('link-add-exclude')?.addEventListener('click', (ev) => {
+              ev.preventDefault();
+              const inp = document.getElementById('form-excluded-apps');
+              inp.value = inp.value ? `${inp.value}, ${app.name}` : app.name;
+            });
+          } else {
+            tip.textContent = 'Ön plandaki uygulama okunamadı.';
+          }
+        }
+      } catch (err) {
+        console.error('Active app error:', err);
+      }
+    });
+  }
+
+  // Export JSON
+  document.getElementById('btn-export-json').addEventListener('click', () => {
+    window.location.href = '/api/export';
+  });
+
+  // Import JSON Trigger & Handler
+  const importTrigger = document.getElementById('btn-import-json-trigger');
+  const importInput = document.getElementById('file-import-input');
+  if (importTrigger && importInput) {
+    importTrigger.addEventListener('click', () => importInput.click());
+    importInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const res = await fetch('/api/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: ev.target.result
+          });
+          if (res.ok) {
+            await loadProfiles();
+            showNotification('Konfigürasyon başarıyla içe aktarıldı!');
+          } else {
+            const errTxt = await res.text();
+            alert('İçe aktarma hatası: ' + errTxt);
+          }
+        } catch (err) {
+          alert('Hata: ' + err);
+        }
+        importInput.value = '';
+      };
+      reader.readAsText(file);
+    });
+  }
 
   // Pause / Resume
   document.getElementById('btn-toggle-pause').addEventListener('click', async () => {
@@ -439,24 +808,6 @@ function setupEventListeners() {
       }
     });
   }
-
-  // Apply Preset
-  document.getElementById('btn-apply-preset').addEventListener('click', async () => {
-    if (!confirm('ANSI Türkçe Karakter Paketi şablonu yüklenecek. Onaylıyor musunuz?')) return;
-    try {
-      const res = await fetch('/api/presets/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ preset: 'ansi_turkish' })
-      });
-      if (res.ok) {
-        await loadRules();
-        showNotification('Şablon başarıyla uygulandı!');
-      }
-    } catch (err) {
-      alert('Şablon uygulanırken hata: ' + err);
-    }
-  });
 
   // Open Add Rule Modal
   document.getElementById('btn-add-rule').addEventListener('click', () => {
@@ -549,6 +900,8 @@ function openModal(rule = null) {
   const prompt = document.getElementById('recorder-prompt');
   const display = document.getElementById('recorded-display');
   const label = document.getElementById('recorder-label');
+  const detectedTip = document.getElementById('detected-app-tip');
+  if (detectedTip) detectedTip.textContent = '';
 
   state.recordingActive = false;
   state.recordedShortcut = null;
@@ -566,17 +919,32 @@ function openModal(rule = null) {
     document.getElementById('mod-ctrl').checked = rule.modifiers.includes('ctrl');
     document.getElementById('mod-shift').checked = rule.modifiers.includes('shift');
 
+    document.getElementById('form-target-apps').value = (rule.target_apps || []).join(', ');
+    document.getElementById('form-excluded-apps').value = (rule.excluded_apps || []).join(', ');
+
     updateRecordedDisplayFromManual();
   } else {
     title.textContent = 'Yeni Kural Ekle';
     document.getElementById('rule-form').reset();
     document.getElementById('form-rule-id').value = '';
+    document.getElementById('form-target-apps').value = '';
+    document.getElementById('form-excluded-apps').value = '';
     prompt.classList.remove('hidden');
     display.classList.add('hidden');
     label.textContent = 'Tuş kombinasyonunu kaydetmek için buraya tıklayın ve tuşlara basın';
   }
 
   modal.classList.remove('hidden');
+}
+
+function openModalWithKeycode(keycode) {
+  openModal();
+  const selectEl = document.getElementById('form-keycode');
+  selectEl.value = keycode;
+
+  // Default to ⌘ Command if empty
+  document.getElementById('mod-cmd').checked = true;
+  updateRecordedDisplayFromManual();
 }
 
 function closeModal() {
@@ -591,6 +959,12 @@ async function handleFormSubmit(e) {
   const description = document.getElementById('form-description').value;
   const output = document.getElementById('form-output').value;
   const keycode = parseInt(document.getElementById('form-keycode').value, 10);
+
+  const targetAppsStr = document.getElementById('form-target-apps').value.trim();
+  const excludedAppsStr = document.getElementById('form-excluded-apps').value.trim();
+
+  const targetApps = targetAppsStr ? targetAppsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+  const excludedApps = excludedAppsStr ? excludedAppsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
 
   if (isNaN(keycode)) {
     alert('Lütfen bir tuş seçin veya tuş kaydediciyi kullanın.');
@@ -612,13 +986,18 @@ async function handleFormSubmit(e) {
     return;
   }
 
+  const isSnippet = output.includes('{') || output.length > 4;
+
   const ruleData = {
     name: name || `Kısayol (${output})`,
     modifiers: mods,
     keycode: keycode,
     output: output,
     enabled: true,
-    description: description
+    description: description,
+    target_apps: targetApps,
+    excluded_apps: excludedApps,
+    is_snippet: isSnippet
   };
 
   try {
@@ -654,6 +1033,7 @@ async function updateRule(rule) {
     });
     updateStats();
     renderRules(state.rules);
+    renderVirtualKeyboard();
   } catch (err) {
     console.error('Update rule error:', err);
   }
@@ -680,7 +1060,6 @@ function initSSE() {
       const data = JSON.parse(e.data);
       appendActivity(data);
 
-      // Increment stats counter in real-time
       const statElem = document.getElementById('stat-total-triggers');
       const current = parseInt(statElem.textContent, 10) || 0;
       statElem.textContent = current + 1;
@@ -713,7 +1092,6 @@ function appendActivity(data) {
 
   stream.insertBefore(item, stream.firstChild);
 
-  // Keep max 20 items in stream
   while (stream.children.length > 20) {
     stream.removeChild(stream.lastChild);
   }
@@ -733,7 +1111,6 @@ function escapeHtml(text) {
 }
 
 function showNotification(msg) {
-  // Simple toast effect
   const toast = document.createElement('div');
   toast.style.position = 'fixed';
   toast.style.bottom = '24px';
