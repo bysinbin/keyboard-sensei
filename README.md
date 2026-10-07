@@ -34,12 +34,26 @@ Artık bir betik değil; **tam bir macOS Uygulaması (`Keyboard Sensei.app`)**, 
      * `{datetime}` $\rightarrow$ Tarih ve saat
      * `{uuid}` $\rightarrow$ Benzersiz rastgele ID
 
-6. **🚀 macOS Başlangıç Servisi (LaunchAgent):**
+6. **⌨️ Donanım / Klavye Cihazı Yönetimi (Hardware Device Filtering):**
+   * macOS IOKit HID seviyesinde Mac'inize bağlı tüm dahili (MacBook klavyesi) ve harici (USB / Bluetooth) klavyeleri anlık tespit eder.
+   * Her klavye için bağımsız **ON / OFF** anahtarı sunar.
+   * **Senaryo:** Dahili klavyenizde eksik tuşlar için Sensei devredeyken, yanına taktığınız Türkçe ISO harici klavyede çakışma olmaması için o harici klavyeyi tek tıkla pasife alabilirsiniz.
+
+7. **⚡ Yönetilebilir Hyper Key (Caps Lock Dönüştürücü):**
+   * Kullanılmayan `Caps Lock` tuşunu güçlü bir süper-değiştiriciye (Hyper Modifier) dönüştürür.
+   * **Hold (Basılı Tutulduğunda):** `⌘ + ⌥ + ⌃ + ⇧` (Super Modifiers) üreterek Raycast, Alfred veya IDE kısayolları için çakışmasız süper kombinasyon sağlar.
+   * **Tap (Tek Dokunulduğunda):** Elinizi uzatmadan serçe parmağınızla anında `ESC` basabilir (Vim / Terminal / Kodlama dostu) veya orijinal Caps Lock işlevini sürdürebilir.
+
+8. **🔁 Çift Dokunma Dizilimleri (Double-Tap Sequences):**
+   * Command veya Option tuşuna basmanıza gerek kalmadan, aynı tuşa iki kez hızlı basıldığında (örn. `öö` $\rightarrow$ `<`, `çç` $\rightarrow$ `>`, `..` $\rightarrow$ `|`, `--` $\rightarrow$ `~`) anında dönüştürür.
+   * Yazma akışını geciktirmez (ilk harf normal basılır; ikinci basış eşiği içinde gelirse sentetik Backspace ile silinip hedef Unicode karakter enjekte edilir).
+
+9. **🚀 macOS Başlangıç Servisi (LaunchAgent):**
    * Bilgisayarınızı yeniden başlattığınızda veya oturum açtığınızda **arka planda otomatik başlar**.
    * Web paneli veya Menü Çubuğu üzerinden tek tıkla açılıp kapatılabilir.
 
-7. **🧪 Kapsamlı Test Kapsamı:**
-   * `internal/config`, `internal/engine` ve `internal/web` modülleri için tam birim testleri içerir (`go test -v ./...`).
+10. **🧪 Kapsamlı Test Kapsamı:**
+    * `internal/config`, `internal/engine` ve `internal/web` modülleri için tam birim testleri içerir (`go test -v ./...`).
 
 ---
 

@@ -62,7 +62,7 @@ func main() {
 	fmt.Println("╔══════════════════════════════════════════════════════════╗")
 	fmt.Println("║               🥋 KEYBOARD SENSEI (macOS)                 ║")
 	fmt.Println("║       ANSI Klavyeler İçin Türkçe Tuş Dönüştürücü         ║")
-	fmt.Println("║                 Sürüm: v1.1.0                            ║")
+	fmt.Println("║                 Sürüm: v1.2.0                            ║")
 	fmt.Println("╚══════════════════════════════════════════════════════════╝")
 
 	// 1. Load Configuration
@@ -80,6 +80,9 @@ func main() {
 	eng := engine.NewEngine()
 	eng.UpdateRules(cfg.Rules)
 	eng.SetGlobalExcludedApps(cfg.ExcludedApps)
+	eng.UpdateHyperKey(cfg.HyperKey)
+	eng.UpdateSequenceRules(cfg.SequenceRules, cfg.EnableSequences)
+	eng.UpdateDeviceFilters(cfg.Devices)
 
 	// 3. Check Accessibility
 	if !eng.IsAccessibilityTrusted() {

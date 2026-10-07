@@ -22,6 +22,9 @@ func setupTestServer() (*httptest.Server, *Server) {
 	mux.HandleFunc("/api/keycodes", srv.handleKeycodes)
 	mux.HandleFunc("/api/version", srv.handleVersion)
 	mux.HandleFunc("/api/export", srv.handleExport)
+	mux.HandleFunc("/api/devices", srv.handleDevices)
+	mux.HandleFunc("/api/hyperkey", srv.handleHyperKey)
+	mux.HandleFunc("/api/sequences", srv.handleSequences)
 
 	ts := httptest.NewServer(mux)
 	return ts, srv
@@ -136,5 +139,91 @@ func TestExportEndpoint(t *testing.T) {
 
 	if len(cfg.Profiles) == 0 {
 		t.Errorf("expected profiles in exported config")
+	}
+}
+
+func TestDevicesEndpoint(t *testing.T) {
+	ts, _ := setupTestServer()
+	defer ts.Close()
+
+	res, err := http.Get(ts.URL + "/api/devices")
+	if err != nil {
+		t.Fatalf("failed to GET /api/devices: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", res.StatusCode)
+	}
+
+	var data map[string]interface{}
+	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
+		t.Fatalf("failed to decode devices: %v", err)
+	}
+	if _, ok := data["devices"]; !ok {
+		t.Errorf("expected 'devices' array in response")
+	}
+}
+
+func TestHyperKeyEndpoint(t *testing.T) {
+	ts, _ := setupTestServer()
+	defer ts.Close()
+
+	// GET
+	res, err := http.Get(ts.URL + "/api/hyperkey")
+	if err != nil {
+		t.Fatalf("failed to GET /api/hyperkey: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", res.StatusCode)
+	}
+
+	// POST
+	updatePayload := `{"enabled":true,"source_keycode":57,"modifiers":["cmd","alt","ctrl","shift"],"tap_action":"escape"}`
+	postRes, err := http.Post(ts.URL+"/api/hyperkey", "application/json", strings.NewReader(updatePayload))
+	if err != nil {
+		t.Fatalf("failed to POST /api/hyperkey: %v", err)
+	}
+	defer postRes.Body.Close()
+
+	if postRes.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", postRes.StatusCode)
+	}
+
+	var hk config.HyperKeyConfig
+	if err := json.NewDecoder(postRes.Body).Decode(&hk); err != nil {
+		t.Fatalf("failed to decode hyperkey response: %v", err)
+	}
+	if !hk.Enabled || hk.TapAction != "escape" {
+		t.Errorf("hyperkey config update did not apply correctly")
+	}
+}
+
+func TestSequencesEndpoint(t *testing.T) {
+	ts, _ := setupTestServer()
+	defer ts.Close()
+
+	// GET
+	res, err := http.Get(ts.URL + "/api/sequences")
+	if err != nil {
+		t.Fatalf("failed to GET /api/sequences: %v", err)
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", res.StatusCode)
+	}
+
+	var data struct {
+		Enabled   bool                  `json:"enabled"`
+		Sequences []config.SequenceRule `json:"sequences"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&data); err != nil {
+		t.Fatalf("failed to decode sequences: %v", err)
+	}
+	if len(data.Sequences) == 0 {
+		t.Errorf("expected default sequences in response")
 	}
 }

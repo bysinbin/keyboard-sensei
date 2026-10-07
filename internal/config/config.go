@@ -33,14 +33,47 @@ type Profile struct {
 	ExcludedApps []string `json:"excluded_apps,omitempty"`
 }
 
+type KeyboardDevice struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	VendorID   int    `json:"vendor_id"`
+	ProductID  int    `json:"product_id"`
+	Transport  string `json:"transport"`
+	IsInternal bool   `json:"is_internal"`
+	Enabled    bool   `json:"enabled"`
+}
+
+type HyperKeyConfig struct {
+	Enabled       bool     `json:"enabled"`
+	SourceKeycode int      `json:"source_keycode"` // Varsayılan: 57 (Caps Lock)
+	Modifiers     []string `json:"modifiers"`      // Varsayılan: ["cmd", "alt", "ctrl", "shift"]
+	TapAction     string   `json:"tap_action"`     // "escape", "none", "caps_lock"
+}
+
+type SequenceRule struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Keycode     int    `json:"keycode"`
+	KeyLabel    string `json:"key_label"`
+	TapCount    int    `json:"tap_count"`
+	Output      string `json:"output"`
+	TimeoutMs   int    `json:"timeout_ms"`
+	Enabled     bool   `json:"enabled"`
+	Description string `json:"description,omitempty"`
+}
+
 type Config struct {
-	Port            int       `json:"port"`
-	AutoStart       bool      `json:"auto_start"`
-	ShowTrayIcon    bool      `json:"show_tray_icon"`
-	ActiveProfileID string    `json:"active_profile_id"`
-	Profiles        []Profile `json:"profiles"`
-	Rules           []Rule    `json:"rules"` // Geriye dönük uyumluluk ve hızlı erişim için
-	ExcludedApps    []string  `json:"excluded_apps,omitempty"`
+	Port            int              `json:"port"`
+	AutoStart       bool             `json:"auto_start"`
+	ShowTrayIcon    bool             `json:"show_tray_icon"`
+	ActiveProfileID string           `json:"active_profile_id"`
+	Profiles        []Profile        `json:"profiles"`
+	Rules           []Rule           `json:"rules"` // Geriye dönük uyumluluk ve hızlı erişim için
+	ExcludedApps    []string         `json:"excluded_apps,omitempty"`
+	Devices         []KeyboardDevice `json:"devices"`
+	HyperKey        HyperKeyConfig   `json:"hyper_key"`
+	SequenceRules   []SequenceRule   `json:"sequence_rules"`
+	EnableSequences bool             `json:"enable_sequences"`
 }
 
 var (
@@ -198,6 +231,65 @@ func BuiltinPresets() []Profile {
 	}
 }
 
+// DefaultSequenceRules returns double-tap sequences (e.g. öö -> <, çç -> >)
+func DefaultSequenceRules() []SequenceRule {
+	return []SequenceRule{
+		{
+			ID:          "seq-less-than",
+			Name:        "Çift ö (öö) ➔ <",
+			Keycode:     43, // ö
+			KeyLabel:    "ö",
+			TapCount:    2,
+			Output:      "<",
+			TimeoutMs:   280,
+			Enabled:     true,
+			Description: "Hızlıca 2 kez ö tuşuna basınca < yazar",
+		},
+		{
+			ID:          "seq-greater-than",
+			Name:        "Çift ç (çç) ➔ >",
+			Keycode:     47, // ç
+			KeyLabel:    "ç",
+			TapCount:    2,
+			Output:      ">",
+			TimeoutMs:   280,
+			Enabled:     true,
+			Description: "Hızlıca 2 kez ç tuşuna basınca > yazar",
+		},
+		{
+			ID:          "seq-pipe",
+			Name:        "Çift nokta (..) ➔ |",
+			Keycode:     44, // .
+			KeyLabel:    ".",
+			TapCount:    2,
+			Output:      "|",
+			TimeoutMs:   280,
+			Enabled:     true,
+			Description: "Hızlıca 2 kez . tuşuna basınca | yazar",
+		},
+		{
+			ID:          "seq-tilde",
+			Name:        "Çift tire (--) ➔ ~",
+			Keycode:     27, // -
+			KeyLabel:    "-",
+			TapCount:    2,
+			Output:      "~",
+			TimeoutMs:   280,
+			Enabled:     true,
+			Description: "Hızlıca 2 kez - tuşuna basınca ~ yazar",
+		},
+	}
+}
+
+func DefaultHyperKey() HyperKeyConfig {
+	return HyperKeyConfig{
+		Enabled:       false,
+		SourceKeycode: 57, // Caps Lock
+		Modifiers:     []string{"cmd", "alt", "ctrl", "shift"},
+		TapAction:     "escape",
+	}
+}
+
 func DefaultConfig() *Config {
 	presets := BuiltinPresets()
 	return &Config{
@@ -208,6 +300,10 @@ func DefaultConfig() *Config {
 		Profiles:        presets,
 		Rules:           presets[0].Rules,
 		ExcludedApps:    []string{},
+		Devices:         []KeyboardDevice{},
+		HyperKey:        DefaultHyperKey(),
+		SequenceRules:   DefaultSequenceRules(),
+		EnableSequences: true,
 	}
 }
 
@@ -266,6 +362,15 @@ func LoadConfig() (*Config, error) {
 
 	if cfg.ActiveProfileID == "" {
 		cfg.ActiveProfileID = cfg.Profiles[0].ID
+	}
+
+	if len(cfg.SequenceRules) == 0 {
+		cfg.SequenceRules = DefaultSequenceRules()
+		cfg.EnableSequences = true
+	}
+
+	if cfg.HyperKey.SourceKeycode == 0 {
+		cfg.HyperKey = DefaultHyperKey()
 	}
 
 	// Sync active rules
@@ -413,6 +518,16 @@ func (c *Config) ImportJSON(data []byte) error {
 	}
 	if len(imported.ExcludedApps) > 0 {
 		c.ExcludedApps = imported.ExcludedApps
+	}
+	if len(imported.Devices) > 0 {
+		c.Devices = imported.Devices
+	}
+	if imported.HyperKey.SourceKeycode > 0 {
+		c.HyperKey = imported.HyperKey
+	}
+	if len(imported.SequenceRules) > 0 {
+		c.SequenceRules = imported.SequenceRules
+		c.EnableSequences = imported.EnableSequences
 	}
 	c.SyncActiveRules()
 	return nil

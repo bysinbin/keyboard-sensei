@@ -4,9 +4,12 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <IOKit/IOKitLib.h>
+#import <IOKit/hid/IOHIDManager.h>
 #import <pthread.h>
 #import <stdbool.h>
 #import <stdint.h>
+#import <sys/time.h>
 
 extern void goOnHotkeyTriggered(int ruleIndex, char* ruleId, char* output);
 extern void goTrayTogglePause();
@@ -34,6 +37,46 @@ static CRule g_rules[MAX_RULES];
 static int g_ruleCount = 0;
 static pthread_mutex_t g_rulesMutex = PTHREAD_MUTEX_INITIALIZER;
 
+// Sequence Rules (e.g. öö -> <, çç -> >)
+typedef struct {
+    int keycode;
+    UniChar outputChars[64];
+    int outputLen;
+    uint64_t timeoutMs;
+    bool enabled;
+} CSequenceRule;
+
+#define MAX_SEQUENCES 32
+static CSequenceRule g_seqRules[MAX_SEQUENCES];
+static int g_seqRuleCount = 0;
+static bool g_enableSequences = true;
+static int g_lastSequenceKey = -1;
+static uint64_t g_lastSequenceTime = 0;
+
+// Hyper Key Configuration
+static bool g_hyperKeyEnabled = false;
+static int g_hyperKeySource = 57; // Caps Lock
+static uint32_t g_hyperKeyMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3); // ⌘⌥⌃⇧
+static int g_hyperTapAction = 1; // 1: escape, 2: caps_lock, 0: none
+static bool g_hyperIsDown = false;
+static uint64_t g_hyperDownTime = 0;
+static bool g_hyperUsedInCombination = false;
+
+// Device Filter Table
+typedef struct {
+    int vendorId;
+    int productId;
+    bool enabled;
+} CDeviceFilter;
+
+#define MAX_DEVICE_FILTERS 64
+static CDeviceFilter g_deviceFilters[MAX_DEVICE_FILTERS];
+static int g_deviceFilterCount = 0;
+static pthread_mutex_t g_deviceMutex = PTHREAD_MUTEX_INITIALIZER;
+
+static int g_lastActiveDeviceVID = 0;
+static int g_lastActiveDevicePID = 0;
+
 static char g_globalExcludedApps[512] = {0};
 static pthread_mutex_t g_exclusionsMutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -43,6 +86,12 @@ static CFRunLoopRef g_runLoop = NULL;
 static bool g_isRunning = false;
 static bool g_isPaused = false;
 static bool g_interceptedKeys[256];
+
+static uint64_t getTimestampMs() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return ((uint64_t)tv.tv_sec * 1000) + ((uint64_t)tv.tv_usec / 1000);
+}
 
 static uint32_t extractModifiers(CGEventFlags flags) {
     uint32_t mod = 0;
@@ -77,6 +126,38 @@ static void injectUnicodeString(const UniChar* chars, int len) {
     CFRelease(src);
 }
 
+static void injectBackspace() {
+    CGEventSourceRef src = CGEventSourceCreate(kCGEventSourceStatePrivate);
+    CGEventRef down = CGEventCreateKeyboardEvent(src, 51, true); // 51: Backspace
+    CGEventSetFlags(down, 0);
+    CGEventSetIntegerValueField(down, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, down);
+    CFRelease(down);
+    
+    CGEventRef up = CGEventCreateKeyboardEvent(src, 51, false);
+    CGEventSetFlags(up, 0);
+    CGEventSetIntegerValueField(up, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, up);
+    CFRelease(up);
+    CFRelease(src);
+}
+
+static void injectEscape() {
+    CGEventSourceRef src = CGEventSourceCreate(kCGEventSourceStatePrivate);
+    CGEventRef down = CGEventCreateKeyboardEvent(src, 53, true); // 53: ESC
+    CGEventSetFlags(down, 0);
+    CGEventSetIntegerValueField(down, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, down);
+    CFRelease(down);
+    
+    CGEventRef up = CGEventCreateKeyboardEvent(src, 53, false);
+    CGEventSetFlags(up, 0);
+    CGEventSetIntegerValueField(up, kCGEventSourceUserData, SENSEI_EVENT_MAGIC);
+    CGEventPost(kCGSessionEventTap, up);
+    CFRelease(up);
+    CFRelease(src);
+}
+
 static NSString* expandDynamicTokens(NSString *input) {
     if (!input || [input rangeOfString:@"{"].location == NSNotFound) {
         return input;
@@ -105,6 +186,24 @@ static NSString* expandDynamicTokens(NSString *input) {
         input = [input stringByReplacingOccurrencesOfString:@"{uuid}" withString:uuidStr];
     }
     return input;
+}
+
+static bool isCurrentDeviceEnabled() {
+    pthread_mutex_lock(&g_deviceMutex);
+    if (g_deviceFilterCount == 0 || (g_lastActiveDeviceVID == 0 && g_lastActiveDevicePID == 0)) {
+        pthread_mutex_unlock(&g_deviceMutex);
+        return true; // enabled by default
+    }
+    for (int i = 0; i < g_deviceFilterCount; i++) {
+        if (g_deviceFilters[i].vendorId == g_lastActiveDeviceVID &&
+            g_deviceFilters[i].productId == g_lastActiveDevicePID) {
+            bool en = g_deviceFilters[i].enabled;
+            pthread_mutex_unlock(&g_deviceMutex);
+            return en;
+        }
+    }
+    pthread_mutex_unlock(&g_deviceMutex);
+    return true;
 }
 
 static bool isCurrentAppExcluded(const char* ruleExcluded, const char* ruleTarget) {
@@ -188,6 +287,38 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
     int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
     if (keycode < 0 || keycode >= 256) return event;
     
+    // Check device filter
+    if (!isCurrentDeviceEnabled()) {
+        return event;
+    }
+
+    // ---------------------------------------------------------
+    // Hyper Key Handling (Caps Lock remap)
+    // ---------------------------------------------------------
+    if (g_hyperKeyEnabled && keycode == g_hyperKeySource) {
+        if (type == kCGEventFlagsChanged || type == kCGEventKeyDown || type == kCGEventKeyUp) {
+            CGEventFlags flags = CGEventGetFlags(event);
+            bool isAlphaActive = (flags & kCGEventFlagMaskAlphaShift) != 0;
+            
+            if (type == kCGEventKeyDown || (type == kCGEventFlagsChanged && !g_hyperIsDown && isAlphaActive)) {
+                g_hyperIsDown = true;
+                g_hyperDownTime = getTimestampMs();
+                g_hyperUsedInCombination = false;
+                return NULL;
+            } else if (type == kCGEventKeyUp || (type == kCGEventFlagsChanged && g_hyperIsDown && !isAlphaActive)) {
+                g_hyperIsDown = false;
+                uint64_t elapsed = getTimestampMs() - g_hyperDownTime;
+                if (!g_hyperUsedInCombination && elapsed < 350) {
+                    if (g_hyperTapAction == 1) { // ESC
+                        injectEscape();
+                    }
+                }
+                return NULL;
+            }
+        }
+        return NULL;
+    }
+
     if (type == kCGEventKeyUp) {
         if (g_interceptedKeys[keycode]) {
             g_interceptedKeys[keycode] = false;
@@ -202,7 +333,43 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
     
     CGEventFlags rawFlags = CGEventGetFlags(event);
     uint32_t eventMods = extractModifiers(rawFlags);
+
+    // Apply Hyper Key modifiers if held down
+    if (g_hyperKeyEnabled && g_hyperIsDown) {
+        eventMods |= g_hyperKeyMask;
+        g_hyperUsedInCombination = true;
+    }
     
+    // ---------------------------------------------------------
+    // Double-Tap Sequence Detection (e.g. öö -> <, çç -> >)
+    // ---------------------------------------------------------
+    if (g_enableSequences && eventMods == 0) {
+        for (int s = 0; s < g_seqRuleCount; s++) {
+            if (g_seqRules[s].enabled && g_seqRules[s].keycode == (int)keycode) {
+                uint64_t nowMs = getTimestampMs();
+                if (g_lastSequenceKey == (int)keycode && (nowMs - g_lastSequenceTime) <= g_seqRules[s].timeoutMs) {
+                    // Double tap triggered!
+                    g_lastSequenceKey = -1;
+                    g_lastSequenceTime = 0;
+                    
+                    injectBackspace();
+                    injectUnicodeString(g_seqRules[s].outputChars, g_seqRules[s].outputLen);
+                    return NULL;
+                } else {
+                    g_lastSequenceKey = (int)keycode;
+                    g_lastSequenceTime = nowMs;
+                    return event;
+                }
+            }
+        }
+        g_lastSequenceKey = -1;
+    } else {
+        g_lastSequenceKey = -1;
+    }
+
+    // ---------------------------------------------------------
+    // Hotkey Rules Matching
+    // ---------------------------------------------------------
     pthread_mutex_lock(&g_rulesMutex);
     for (int i = 0; i < g_ruleCount; i++) {
         if (g_rules[i].enabled && g_rules[i].keycode == (int)keycode && g_rules[i].flags == eventMods) {
@@ -246,8 +413,48 @@ static CGEventRef eventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEv
     return event;
 }
 
+// -------------------------------------------------------------
+// IOHIDManager Keyboard Input Callback (Device identification)
+// -------------------------------------------------------------
+static IOHIDManagerRef g_hidManager = NULL;
+
+static void hidInputCallback(void *context, IOReturn result, void *sender, IOHIDValueRef value) {
+    IOHIDDeviceRef device = (IOHIDDeviceRef)sender;
+    if (!device) return;
+    
+    CFNumberRef vendorId = (CFNumberRef)IOHIDDeviceGetProperty(device, CFSTR(kIOHIDVendorIDKey));
+    CFNumberRef productId = (CFNumberRef)IOHIDDeviceGetProperty(device, CFSTR(kIOHIDProductIDKey));
+    
+    if (vendorId) CFNumberGetValue(vendorId, kCFNumberIntType, &g_lastActiveDeviceVID);
+    if (productId) CFNumberGetValue(productId, kCFNumberIntType, &g_lastActiveDevicePID);
+}
+
+static void c_setupHIDManager() {
+    if (g_hidManager) return;
+    g_hidManager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    
+    CFMutableDictionaryRef matching = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    int page = kHIDPage_GenericDesktop;
+    int usage = kHIDUsage_GD_Keyboard;
+    CFNumberRef pageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &page);
+    CFNumberRef usageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usage);
+    CFDictionarySetValue(matching, CFSTR(kIOHIDDeviceUsagePageKey), pageNum);
+    CFDictionarySetValue(matching, CFSTR(kIOHIDDeviceUsageKey), usageNum);
+    CFRelease(pageNum);
+    CFRelease(usageNum);
+    
+    IOHIDManagerSetDeviceMatching(g_hidManager, matching);
+    CFRelease(matching);
+    
+    IOHIDManagerRegisterInputValueCallback(g_hidManager, hidInputCallback, NULL);
+    IOHIDManagerScheduleWithRunLoop(g_hidManager, CFRunLoopGetCurrent(), kCFRunLoopCommonModes);
+    IOHIDManagerOpen(g_hidManager, kIOHIDOptionsTypeNone);
+}
+
 static void* runLoopThread(void* arg) {
     g_runLoop = CFRunLoopGetCurrent();
+    c_setupHIDManager();
     CFRunLoopAddSource(g_runLoop, g_runLoopSource, kCFRunLoopCommonModes);
     CGEventTapEnable(g_eventTap, true);
     g_isRunning = true;
@@ -259,7 +466,7 @@ static void* runLoopThread(void* arg) {
 bool c_startTap() {
     if (g_isRunning) return true;
     
-    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp);
+    CGEventMask mask = CGEventMaskBit(kCGEventKeyDown) | CGEventMaskBit(kCGEventKeyUp) | CGEventMaskBit(kCGEventFlagsChanged);
     g_eventTap = CGEventTapCreate(
         kCGSessionEventTap,
         kCGHeadInsertEventTap,
@@ -383,6 +590,145 @@ void c_addRule(int index, const char* ruleId, uint32_t flags, int keycode, const
     
     g_ruleCount++;
     pthread_mutex_unlock(&g_rulesMutex);
+}
+
+// -------------------------------------------------------------
+// Sequence Rules (öö -> <)
+// -------------------------------------------------------------
+void c_clearSequenceRules() {
+    g_seqRuleCount = 0;
+}
+
+void c_addSequenceRule(int keycode, const char* outputUtf8, int timeoutMs, bool enabled) {
+    if (g_seqRuleCount >= MAX_SEQUENCES) return;
+    
+    CSequenceRule *sr = &g_seqRules[g_seqRuleCount];
+    sr->keycode = keycode;
+    sr->timeoutMs = timeoutMs > 0 ? timeoutMs : 280;
+    sr->enabled = enabled;
+    sr->outputLen = 0;
+    
+    if (outputUtf8) {
+        CFStringRef cf = CFStringCreateWithCString(kCFAllocatorDefault, outputUtf8, kCFStringEncodingUTF8);
+        if (cf) {
+            CFIndex len = CFStringGetLength(cf);
+            if (len > 64) len = 64;
+            CFStringGetCharacters(cf, CFRangeMake(0, len), sr->outputChars);
+            sr->outputLen = (int)len;
+            CFRelease(cf);
+        }
+    }
+    g_seqRuleCount++;
+}
+
+void c_setEnableSequences(bool enabled) {
+    g_enableSequences = enabled;
+}
+
+// -------------------------------------------------------------
+// Hyper Key Configuration
+// -------------------------------------------------------------
+void c_setHyperKey(bool enabled, int sourceKeycode, uint32_t mask, int tapAction) {
+    g_hyperKeyEnabled = enabled;
+    g_hyperKeySource = sourceKeycode > 0 ? sourceKeycode : 57;
+    g_hyperKeyMask = mask;
+    g_hyperTapAction = tapAction;
+}
+
+// -------------------------------------------------------------
+// Device Filters & Hardware Listing
+// -------------------------------------------------------------
+void c_clearDeviceFilters() {
+    pthread_mutex_lock(&g_deviceMutex);
+    g_deviceFilterCount = 0;
+    pthread_mutex_unlock(&g_deviceMutex);
+}
+
+void c_addDeviceFilter(int vendorId, int productId, bool enabled) {
+    pthread_mutex_lock(&g_deviceMutex);
+    if (g_deviceFilterCount < MAX_DEVICE_FILTERS) {
+        g_deviceFilters[g_deviceFilterCount].vendorId = vendorId;
+        g_deviceFilters[g_deviceFilterCount].productId = productId;
+        g_deviceFilters[g_deviceFilterCount].enabled = enabled;
+        g_deviceFilterCount++;
+    }
+    pthread_mutex_unlock(&g_deviceMutex);
+}
+
+typedef struct {
+    char name[128];
+    int vendorId;
+    int productId;
+    char transport[64];
+    bool isInternal;
+} CHIDDeviceInfo;
+
+int c_getConnectedKeyboards(CHIDDeviceInfo *outDevices, int maxDevices) {
+    IOHIDManagerRef mgr = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    
+    CFMutableDictionaryRef matching = CFDictionaryCreateMutable(kCFAllocatorDefault, 0,
+        &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+    int page = kHIDPage_GenericDesktop;
+    int usage = kHIDUsage_GD_Keyboard;
+    CFNumberRef pageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &page);
+    CFNumberRef usageNum = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usage);
+    CFDictionarySetValue(matching, CFSTR(kIOHIDDeviceUsagePageKey), pageNum);
+    CFDictionarySetValue(matching, CFSTR(kIOHIDDeviceUsageKey), usageNum);
+    CFRelease(pageNum);
+    CFRelease(usageNum);
+    
+    IOHIDManagerSetDeviceMatching(mgr, matching);
+    CFRelease(matching);
+    IOHIDManagerOpen(mgr, kIOHIDOptionsTypeNone);
+    
+    CFSetRef deviceSet = IOHIDManagerCopyDevices(mgr);
+    if (!deviceSet) {
+        CFRelease(mgr);
+        return 0;
+    }
+    
+    CFIndex count = CFSetGetCount(deviceSet);
+    const void *devices[count];
+    CFSetGetValues(deviceSet, devices);
+    
+    int added = 0;
+    for (CFIndex i = 0; i < count && added < maxDevices; i++) {
+        IOHIDDeviceRef dev = (IOHIDDeviceRef)devices[i];
+        
+        CFStringRef product = (CFStringRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductKey));
+        CFNumberRef vendorId = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDVendorIDKey));
+        CFNumberRef productId = (CFNumberRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDProductIDKey));
+        CFStringRef transport = (CFStringRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDTransportKey));
+        CFBooleanRef builtIn = (CFBooleanRef)IOHIDDeviceGetProperty(dev, CFSTR(kIOHIDBuiltInKey));
+        
+        CHIDDeviceInfo *d = &outDevices[added];
+        strncpy(d->name, "Bilinmeyen Klavye", sizeof(d->name) - 1);
+        if (product && CFGetTypeID(product) == CFStringGetTypeID()) {
+            CFStringGetCString(product, d->name, sizeof(d->name), kCFStringEncodingUTF8);
+        }
+        
+        strncpy(d->transport, "USB", sizeof(d->transport) - 1);
+        if (transport && CFGetTypeID(transport) == CFStringGetTypeID()) {
+            CFStringGetCString(transport, d->transport, sizeof(d->transport), kCFStringEncodingUTF8);
+        }
+        
+        d->vendorId = 0;
+        d->productId = 0;
+        if (vendorId) CFNumberGetValue(vendorId, kCFNumberIntType, &d->vendorId);
+        if (productId) CFNumberGetValue(productId, kCFNumberIntType, &d->productId);
+        d->isInternal = builtIn ? CFBooleanGetValue(builtIn) : false;
+        
+        // Skip virtual or touchbar devices without proper products
+        if (strstr(d->name, "TouchBarUserDevice") || d->vendorId == 0) {
+            continue;
+        }
+        
+        added++;
+    }
+    
+    CFRelease(deviceSet);
+    CFRelease(mgr);
+    return added;
 }
 
 void c_getFrontmostApp(char* nameBuf, int nameBufLen, char* idBuf, int idBufLen) {

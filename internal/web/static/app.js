@@ -7,7 +7,11 @@ let state = {
   activeProfileID: 'profile-ansi-tr',
   keycodes: [],
   recordingActive: false,
-  recordedShortcut: null
+  recordedShortcut: null,
+  devices: [],
+  hyperKey: null,
+  sequences: [],
+  enableSequences: true
 };
 
 // Browser event.code to macOS virtual keycode mapping
@@ -100,7 +104,7 @@ const KEYBOARD_LAYOUT = [
   ],
   // Row 3: Home row
   [
-    { main: 'Caps', code: null, mod: true, cls: 'w-1-75' },
+    { main: 'Caps', sub: '⚡', code: 57, mod: true, cls: 'w-1-75' },
     { main: 'A', code: 0 },
     { main: 'S', code: 1 },
     { main: 'D', code: 2 },
@@ -149,6 +153,10 @@ async function initApp() {
   await loadKeycodes();
   await refreshStatus();
   await loadProfiles();
+  await loadDevices();
+  await loadHyperKey();
+  await loadSequences();
+  setupTabs();
   setupEventListeners();
   initSSE();
 
@@ -253,6 +261,26 @@ function renderStatus(status) {
     document.getElementById('stat-total-triggers').textContent = status.stats.total_triggered || 0;
   }
 
+  // Hyper Key Stat
+  const statHyper = document.getElementById('stat-hyper-status');
+  const subHyper = document.getElementById('stat-hyper-sub');
+  const badgeHyper = document.getElementById('badge-hyper-status');
+  if (status.hyper_key_enabled) {
+    if (statHyper) statHyper.textContent = 'Aktif ⚡';
+    if (subHyper) subHyper.textContent = 'Caps Lock ➔ ⌘⌥⌃⇧';
+    if (badgeHyper) badgeHyper.className = 'tab-status-dot active';
+  } else {
+    if (statHyper) statHyper.textContent = 'Kapalı';
+    if (subHyper) subHyper.textContent = 'Caps Lock Devre Dışı';
+    if (badgeHyper) badgeHyper.className = 'tab-status-dot';
+  }
+
+  // Sequences count
+  const seqBadge = document.getElementById('badge-sequences-count');
+  if (seqBadge && status.sequences_count !== undefined) {
+    seqBadge.textContent = status.sequences_count;
+  }
+
   if (status.active_profile_name) {
     const headerProfile = document.getElementById('profile-name-header');
     if (headerProfile) headerProfile.textContent = status.active_profile_name;
@@ -342,6 +370,10 @@ function renderVirtualKeyboard() {
         const outputs = rList.map(r => r.output).join(', ');
         badgeHtml = `<span class="key-badge" title="${escapeHtml(outputs)}">${escapeHtml(rList[0].output)}</span>`;
         tooltipText = rList.map(r => `${formatShortcutText(r.modifiers, r.keycode)} ➔ ${r.output}`).join(' | ');
+      } else if (key.code === 57 && state.hyperKey && state.hyperKey.enabled) {
+        cls.push('key-hyper-active');
+        badgeHtml = `<span class="key-badge key-badge-hyper" title="Hyper Key Aktif">⚡</span>`;
+        tooltipText = 'Caps Lock ➔ Hyper Key (⌘⌥⌃⇧)';
       }
 
       const dataAttr = key.code !== null ? `data-keycode="${key.code}"` : '';
@@ -869,6 +901,457 @@ function setupEventListeners() {
     document.getElementById(id).addEventListener('change', updateRecordedDisplayFromManual);
   });
   document.getElementById('form-keycode').addEventListener('change', updateRecordedDisplayFromManual);
+
+  // Hardware Devices Listeners
+  document.getElementById('btn-refresh-devices')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-refresh-devices');
+    if (btn) btn.classList.add('loading');
+    await loadDevices();
+    if (btn) btn.classList.remove('loading');
+    showNotification('Klavyeler yeniden tarandı!');
+  });
+
+  // Hyper Key Listeners
+  document.getElementById('hyperkey-master-toggle')?.addEventListener('change', saveHyperKeySettings);
+  document.getElementById('btn-save-hyperkey')?.addEventListener('click', saveHyperKeySettings);
+  ['hk-mod-cmd', 'hk-mod-alt', 'hk-mod-ctrl', 'hk-mod-shift'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', updateHyperKeyPreview);
+  });
+
+  // Sequences Listeners
+  document.getElementById('sequences-master-toggle')?.addEventListener('change', async (e) => {
+    state.enableSequences = e.target.checked;
+    await saveSequences(state.sequences, state.enableSequences);
+  });
+  document.getElementById('btn-add-sequence')?.addEventListener('click', openSequenceModal);
+  document.getElementById('btn-close-seq-modal')?.addEventListener('click', closeSequenceModal);
+  document.getElementById('btn-cancel-seq-modal')?.addEventListener('click', closeSequenceModal);
+  document.getElementById('sequence-form')?.addEventListener('submit', handleSequenceFormSubmit);
+}
+
+// -------------------------------------------------------------
+// Feature Tabs Navigation
+// -------------------------------------------------------------
+function setupTabs() {
+  const tabs = document.querySelectorAll('.feature-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const targetPaneId = 'tab-pane-' + tab.dataset.tab.replace('tab-', '');
+      tabs.forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.add('hidden'));
+      const activePane = document.getElementById(targetPaneId);
+      if (activePane) {
+        activePane.classList.remove('hidden');
+      }
+    });
+  });
+}
+
+// -------------------------------------------------------------
+// Hardware Devices Management
+// -------------------------------------------------------------
+async function loadDevices() {
+  try {
+    const res = await fetch('/api/devices');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.devices = data.devices || [];
+    renderDevices(state.devices);
+  } catch (err) {
+    console.error('Devices fetch failed:', err);
+  }
+}
+
+function renderDevices(devices) {
+  const container = document.getElementById('devices-container');
+  if (!container) return;
+
+  const countBadge = document.getElementById('badge-devices-count');
+  if (countBadge) countBadge.textContent = devices.length;
+
+  const statDevCount = document.getElementById('stat-devices-count');
+  const statDevSub = document.getElementById('stat-devices-sub');
+  if (statDevCount) {
+    statDevCount.textContent = devices.length;
+  }
+  if (statDevSub) {
+    const internalCount = devices.filter(d => d.is_internal).length;
+    const externalCount = devices.length - internalCount;
+    statDevSub.textContent = `${internalCount} Dahili, ${externalCount} Harici`;
+  }
+
+  if (devices.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="grid-column: 1 / -1; text-align: center; padding: 30px;">
+        <div style="font-size: 2rem; margin-bottom: 8px;">⌨️</div>
+        <h3 style="color:#fff; margin-bottom: 4px;">Bağlı Klavye Bulunamadı</h3>
+        <p style="color:var(--text-muted); font-size:0.85rem;">Mac'inize bağlı donanım veya sanal klavye algılanamadı.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = devices.map(dev => {
+    const isInternal = dev.is_internal;
+    const iconClass = isInternal ? 'device-icon-internal' : 'device-icon-external';
+    const iconSymbol = isInternal ? '💻' : '🔌';
+    const typeLabel = isInternal ? 'Dahili MacBook Klavyesi' : 'Harici Klavye';
+    const pillClass = isInternal ? 'pill-internal' : 'pill-external';
+    const hexVid = '0x' + (dev.vendor_id ? dev.vendor_id.toString(16).padStart(4, '0') : '0000');
+    const hexPid = '0x' + (dev.product_id ? dev.product_id.toString(16).padStart(4, '0') : '0000');
+
+    return `
+      <div class="device-card ${dev.enabled ? '' : 'disabled'}" data-id="${dev.id}">
+        <div class="device-header">
+          <div class="device-title-row">
+            <div class="device-icon-box ${iconClass}">
+              <span>${iconSymbol}</span>
+            </div>
+            <div class="device-name-group">
+              <h4 class="device-name">${escapeHtml(dev.name || 'Klavye')}</h4>
+              <div class="device-badge-row">
+                <span class="device-pill ${pillClass}">${typeLabel}</span>
+                <span class="device-pill pill-transport">${escapeHtml(dev.transport || 'HID')}</span>
+              </div>
+            </div>
+          </div>
+          <div class="device-toggle-box">
+            <label class="switch" title="Sensei Dönüşümlerini Bu Klavyede Aç/Kapat">
+              <input type="checkbox" class="device-toggle-switch" data-vid="${dev.vendor_id}" data-pid="${dev.product_id}" data-id="${dev.id}" ${dev.enabled ? 'checked' : ''}>
+              <span class="slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="device-meta-row">
+          <span class="device-id-code">VID: ${hexVid} | PID: ${hexPid}</span>
+          <span class="device-status-text ${dev.enabled ? 'enabled' : 'disabled'}">
+            ${dev.enabled ? '✅ Sensei Aktif' : '⏸️ Devre Dışı'}
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Attach event listeners to device toggle switches
+  container.querySelectorAll('.device-toggle-switch').forEach(sw => {
+    sw.addEventListener('change', async (e) => {
+      const vid = parseInt(e.target.dataset.vid, 10);
+      const pid = parseInt(e.target.dataset.pid, 10);
+      const id = e.target.dataset.id;
+      const enabled = e.target.checked;
+
+      // Update state locally
+      const found = state.devices.find(d => (d.vendor_id === vid && d.product_id === pid) || d.id === id);
+      if (found) {
+        found.enabled = enabled;
+      }
+
+      // Visual update
+      const card = e.target.closest('.device-card');
+      if (card) {
+        card.classList.toggle('disabled', !enabled);
+        const statusTxt = card.querySelector('.device-status-text');
+        if (statusTxt) {
+          statusTxt.className = `device-status-text ${enabled ? 'enabled' : 'disabled'}`;
+          statusTxt.textContent = enabled ? '✅ Sensei Aktif' : '⏸️ Devre Dışı';
+        }
+      }
+
+      try {
+        await fetch('/api/devices', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            device: {
+              id: id,
+              vendor_id: vid,
+              product_id: pid,
+              enabled: enabled
+            }
+          })
+        });
+        showNotification(enabled ? 'Klavye için dönüşümler aktif edildi' : 'Klavye devre dışı bırakıldı');
+      } catch (err) {
+        console.error('Device update failed:', err);
+      }
+    });
+  });
+}
+
+// -------------------------------------------------------------
+// Hyper Key Management
+// -------------------------------------------------------------
+async function loadHyperKey() {
+  try {
+    const res = await fetch('/api/hyperkey');
+    if (!res.ok) return;
+    state.hyperKey = await res.json();
+    renderHyperKey(state.hyperKey);
+  } catch (err) {
+    console.error('HyperKey fetch failed:', err);
+  }
+}
+
+function renderHyperKey(hk) {
+  if (!hk) return;
+
+  const masterToggle = document.getElementById('hyperkey-master-toggle');
+  if (masterToggle) masterToggle.checked = Boolean(hk.enabled);
+
+  const modCmd = document.getElementById('hk-mod-cmd');
+  const modAlt = document.getElementById('hk-mod-alt');
+  const modCtrl = document.getElementById('hk-mod-ctrl');
+  const modShift = document.getElementById('hk-mod-shift');
+
+  const mods = hk.modifiers || ['cmd', 'alt', 'ctrl', 'shift'];
+  if (modCmd) modCmd.checked = mods.includes('cmd');
+  if (modAlt) modAlt.checked = mods.includes('alt');
+  if (modCtrl) modCtrl.checked = mods.includes('ctrl');
+  if (modShift) modShift.checked = mods.includes('shift');
+
+  const tapRadios = document.querySelectorAll('input[name="hyper-tap-action"]');
+  tapRadios.forEach(r => {
+    r.checked = (r.value === (hk.tap_action || 'escape'));
+  });
+
+  updateHyperKeyPreview();
+
+  // Status stats
+  const statHyper = document.getElementById('stat-hyper-status');
+  const subHyper = document.getElementById('stat-hyper-sub');
+  const badgeHyper = document.getElementById('badge-hyper-status');
+  if (hk.enabled) {
+    if (statHyper) statHyper.textContent = 'Aktif ⚡';
+    if (subHyper) subHyper.textContent = `Tap: ${(hk.tap_action || 'esc').toUpperCase()} / ⌘⌥⌃⇧`;
+    if (badgeHyper) badgeHyper.className = 'tab-status-dot active';
+  } else {
+    if (statHyper) statHyper.textContent = 'Kapalı';
+    if (subHyper) subHyper.textContent = 'Caps Lock Devre Dışı';
+    if (badgeHyper) badgeHyper.className = 'tab-status-dot';
+  }
+}
+
+function updateHyperKeyPreview() {
+  const preview = document.getElementById('hyperkey-combo-preview');
+  if (!preview) return;
+
+  const mods = [];
+  if (document.getElementById('hk-mod-cmd')?.checked) mods.push('⌘');
+  if (document.getElementById('hk-mod-alt')?.checked) mods.push('⌥');
+  if (document.getElementById('hk-mod-ctrl')?.checked) mods.push('⌃');
+  if (document.getElementById('hk-mod-shift')?.checked) mods.push('⇧');
+
+  if (mods.length === 0) {
+    preview.innerHTML = '<span class="text-muted">(Hiçbir modifier seçilmedi)</span>';
+    return;
+  }
+
+  preview.innerHTML = mods.map((m, i) => {
+    return `<kbd class="kbd-badge">${m}</kbd>${i < mods.length - 1 ? '<span class="plus">+</span>' : ''}`;
+  }).join('');
+}
+
+async function saveHyperKeySettings() {
+  const masterToggle = document.getElementById('hyperkey-master-toggle');
+  const mods = [];
+  if (document.getElementById('hk-mod-cmd')?.checked) mods.push('cmd');
+  if (document.getElementById('hk-mod-alt')?.checked) mods.push('alt');
+  if (document.getElementById('hk-mod-ctrl')?.checked) mods.push('ctrl');
+  if (document.getElementById('hk-mod-shift')?.checked) mods.push('shift');
+
+  const selectedTap = document.querySelector('input[name="hyper-tap-action"]:checked')?.value || 'escape';
+
+  const payload = {
+    enabled: masterToggle ? masterToggle.checked : false,
+    source_keycode: 57,
+    modifiers: mods,
+    tap_action: selectedTap
+  };
+
+  try {
+    const res = await fetch('/api/hyperkey', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      state.hyperKey = await res.json();
+      renderHyperKey(state.hyperKey);
+      renderVirtualKeyboard();
+      showNotification('⚡ Hyper Key ayarları başarıyla uygulandı!');
+    }
+  } catch (err) {
+    alert('Hyper Key kaydedilemedi: ' + err);
+  }
+}
+
+// -------------------------------------------------------------
+// Double-Tap Sequences Management
+// -------------------------------------------------------------
+async function loadSequences() {
+  try {
+    const res = await fetch('/api/sequences');
+    if (!res.ok) return;
+    const data = await res.json();
+    state.sequences = data.sequences || [];
+    state.enableSequences = Boolean(data.enabled);
+    renderSequences(state.sequences, state.enableSequences);
+    populateSeqKeycodeDropdown();
+  } catch (err) {
+    console.error('Sequences fetch failed:', err);
+  }
+}
+
+function renderSequences(sequences, enabled) {
+  const container = document.getElementById('sequences-container');
+  if (!container) return;
+
+  const countBadge = document.getElementById('badge-sequences-count');
+  if (countBadge) countBadge.textContent = sequences.length;
+
+  const masterToggle = document.getElementById('sequences-master-toggle');
+  if (masterToggle) masterToggle.checked = enabled;
+
+  if (sequences.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="text-align: center; padding: 30px;">
+        <div style="font-size: 2rem; margin-bottom: 8px;">🔁</div>
+        <h3 style="color:#fff; margin-bottom: 4px;">Dizilim Bulunmuyor</h3>
+        <p style="color:var(--text-muted); font-size:0.85rem;">Yukarıdaki "+ Yeni Dizilim Ekle" butonuna basarak çift dokunma kısayolu oluşturabilirsiniz.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = sequences.map((seq, idx) => {
+    const label = seq.key_label || `#${seq.keycode}`;
+    return `
+      <div class="sequence-card ${seq.enabled && enabled ? '' : 'disabled'}" data-id="${seq.id}">
+        <div class="sequence-formula">
+          <div class="seq-double-key">
+            <span class="seq-key-pill">${escapeHtml(label)}</span>
+            <span class="seq-key-pill">${escapeHtml(label)}</span>
+          </div>
+          <span class="seq-arrow">➔</span>
+          <span class="seq-output-badge">${escapeHtml(seq.output)}</span>
+        </div>
+
+        <div class="sequence-meta">
+          <span class="sequence-name">${escapeHtml(seq.name || `${label}${label} ➔ ${seq.output}`)}</span>
+          <span class="sequence-details">${escapeHtml(seq.description || 'Hızlı çift dokunma')} &bull; ${seq.timeout_ms || 280}ms eşik</span>
+        </div>
+
+        <div class="sequence-actions">
+          <label class="switch" title="Bu dizilimi aktif / pasif yap">
+            <input type="checkbox" class="seq-toggle-switch" data-index="${idx}" ${seq.enabled ? 'checked' : ''}>
+            <span class="slider"></span>
+          </label>
+          <button class="btn btn-ghost btn-sm btn-delete-seq" data-index="${idx}" title="Dizilimi Sil">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Bind sequence toggle and delete handlers
+  container.querySelectorAll('.seq-toggle-switch').forEach(sw => {
+    sw.addEventListener('change', async (e) => {
+      const idx = parseInt(e.target.dataset.index, 10);
+      state.sequences[idx].enabled = e.target.checked;
+      await saveSequences(state.sequences, state.enableSequences);
+    });
+  });
+
+  container.querySelectorAll('.btn-delete-seq').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const idx = parseInt(e.target.closest('.btn-delete-seq').dataset.index, 10);
+      if (confirm('Bu çift dokunma kuralını silmek istediğinize emin misiniz?')) {
+        state.sequences.splice(idx, 1);
+        await saveSequences(state.sequences, state.enableSequences);
+      }
+    });
+  });
+}
+
+async function saveSequences(sequences, enabled) {
+  try {
+    const res = await fetch('/api/sequences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        enabled: enabled,
+        sequences: sequences
+      })
+    });
+    if (res.ok) {
+      const data = await res.json();
+      state.sequences = data.sequences || [];
+      state.enableSequences = Boolean(data.enabled);
+      renderSequences(state.sequences, state.enableSequences);
+      showNotification('Çift dokunma dizilimleri güncellendi!');
+    }
+  } catch (err) {
+    console.error('Save sequences failed:', err);
+  }
+}
+
+function populateSeqKeycodeDropdown() {
+  const select = document.getElementById('form-seq-keycode');
+  if (!select || !state.keycodes) return;
+
+  select.innerHTML = '<option value="">Tuş Seçin...</option>' + state.keycodes.map(k => {
+    return `<option value="${k.code}">${k.name} (Kod: ${k.code})</option>`;
+  }).join('');
+}
+
+function openSequenceModal() {
+  const modal = document.getElementById('sequence-modal');
+  if (!modal) return;
+  document.getElementById('sequence-form').reset();
+  document.getElementById('form-seq-id').value = '';
+  document.getElementById('form-seq-timeout').value = '280';
+  modal.classList.remove('hidden');
+}
+
+function closeSequenceModal() {
+  const modal = document.getElementById('sequence-modal');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function handleSequenceFormSubmit(e) {
+  e.preventDefault();
+  const id = document.getElementById('form-seq-id').value || `seq-${Date.now()}`;
+  const keycode = parseInt(document.getElementById('form-seq-keycode').value, 10);
+  const output = document.getElementById('form-seq-output').value.trim();
+  const name = document.getElementById('form-seq-name').value.trim() || `Çift Dokunma ➔ ${output}`;
+  const timeoutMs = parseInt(document.getElementById('form-seq-timeout').value, 10) || 280;
+
+  let keyLabel = `#${keycode}`;
+  const keyInfo = state.keycodes.find(k => k.code === keycode);
+  if (keyInfo) keyLabel = keyInfo.name;
+
+  const newSeq = {
+    id: id,
+    name: name,
+    keycode: keycode,
+    key_label: keyLabel,
+    tap_count: 2,
+    output: output,
+    timeout_ms: timeoutMs,
+    enabled: true
+  };
+
+  const existingIdx = state.sequences.findIndex(s => s.id === id);
+  if (existingIdx >= 0) {
+    state.sequences[existingIdx] = newSeq;
+  } else {
+    state.sequences.push(newSeq);
+  }
+
+  await saveSequences(state.sequences, state.enableSequences);
+  closeSequenceModal();
 }
 
 function updateRecordedDisplayFromManual() {

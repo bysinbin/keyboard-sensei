@@ -18,7 +18,7 @@ import (
 	"keyboard-sensei/internal/service"
 )
 
-const AppVersion = "v1.1.0"
+const AppVersion = "v1.2.0"
 
 //go:embed static/*
 var staticFS embed.FS
@@ -58,6 +58,9 @@ func (s *Server) Start() error {
 	mux.HandleFunc("/api/quit", s.handleQuit)
 	mux.HandleFunc("/api/events", s.handleEventsSSE)
 	mux.HandleFunc("/api/logs", s.handleLogs)
+	mux.HandleFunc("/api/devices", s.handleDevices)
+	mux.HandleFunc("/api/hyperkey", s.handleHyperKey)
+	mux.HandleFunc("/api/sequences", s.handleSequences)
 
 	// Static assets
 	subFS, err := fs.Sub(staticFS, "static")
@@ -103,6 +106,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"active_app_bundle":     appBundleID,
 		"stats":                 stats,
 		"config_file":           config.GetConfigFilePath(),
+		"hyper_key_enabled":     cfg.HyperKey.Enabled,
+		"sequences_enabled":     cfg.EnableSequences,
+		"sequences_count":       len(cfg.SequenceRules),
 	}
 
 	if activeProfile != nil {
@@ -653,4 +659,169 @@ func (s *Server) handleQuit(w http.ResponseWriter, r *http.Request) {
 		engine.StopMacAppLoop()
 		os.Exit(0)
 	}()
+}
+
+func (s *Server) handleDevices(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+
+	switch r.Method {
+	case http.MethodGet:
+		connected := s.engine.GetConnectedKeyboards()
+
+		// Merge with saved enabled/disabled status in config
+		savedMap := make(map[string]bool)
+		for _, d := range cfg.Devices {
+			key := fmt.Sprintf("%d:%d", d.VendorID, d.ProductID)
+			savedMap[key] = d.Enabled
+		}
+
+		result := make([]config.KeyboardDevice, len(connected))
+		for i, dev := range connected {
+			result[i] = dev
+			key := fmt.Sprintf("%d:%d", dev.VendorID, dev.ProductID)
+			if enabled, exists := savedMap[key]; exists {
+				result[i].Enabled = enabled
+			} else {
+				result[i].Enabled = true
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"devices": result,
+		})
+
+	case http.MethodPost:
+		var body struct {
+			Devices []config.KeyboardDevice `json:"devices"`
+			Device  *config.KeyboardDevice  `json:"device,omitempty"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if body.Device != nil {
+			// Single device toggle/update
+			updated := false
+			for i, d := range cfg.Devices {
+				if (d.VendorID == body.Device.VendorID && d.ProductID == body.Device.ProductID) || d.ID == body.Device.ID {
+					cfg.Devices[i].Enabled = body.Device.Enabled
+					if body.Device.Name != "" {
+						cfg.Devices[i].Name = body.Device.Name
+					}
+					updated = true
+					break
+				}
+			}
+			if !updated {
+				cfg.Devices = append(cfg.Devices, *body.Device)
+			}
+		} else if len(body.Devices) > 0 {
+			cfg.Devices = body.Devices
+		}
+
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.engine.UpdateDeviceFilters(cfg.Devices)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"devices": cfg.Devices,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleHyperKey(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(cfg.HyperKey)
+
+	case http.MethodPost:
+		var updated config.HyperKeyConfig
+		if err := json.NewDecoder(r.Body).Decode(&updated); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if updated.SourceKeycode == 0 {
+			updated.SourceKeycode = 57 // Caps Lock
+		}
+		if len(updated.Modifiers) == 0 {
+			updated.Modifiers = []string{"cmd", "alt", "ctrl", "shift"}
+		}
+		if updated.TapAction == "" {
+			updated.TapAction = "escape"
+		}
+
+		cfg.HyperKey = updated
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.engine.UpdateHyperKey(cfg.HyperKey)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(cfg.HyperKey)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *Server) handleSequences(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Get()
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled":   cfg.EnableSequences,
+			"sequences": cfg.SequenceRules,
+		})
+
+	case http.MethodPost:
+		var body struct {
+			Enabled   *bool                 `json:"enabled"`
+			Sequences []config.SequenceRule `json:"sequences"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		if body.Enabled != nil {
+			cfg.EnableSequences = *body.Enabled
+		}
+		if body.Sequences != nil {
+			cfg.SequenceRules = body.Sequences
+		}
+
+		if err := config.SaveConfig(cfg); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		s.engine.UpdateSequenceRules(cfg.SequenceRules, cfg.EnableSequences)
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"enabled":   cfg.EnableSequences,
+			"sequences": cfg.SequenceRules,
+		})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

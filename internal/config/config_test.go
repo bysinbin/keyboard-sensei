@@ -145,3 +145,59 @@ func TestConfigSaveAndLoad(t *testing.T) {
 		t.Errorf("expected port 9999, got %d", loaded.Port)
 	}
 }
+
+func TestDefaultSequenceRules(t *testing.T) {
+	seqs := DefaultSequenceRules()
+	if len(seqs) < 4 {
+		t.Errorf("expected at least 4 default sequences, got %d", len(seqs))
+	}
+
+	foundLess := false
+	foundGreater := false
+	for _, s := range seqs {
+		if s.Output == "<" && s.Keycode == 43 {
+			foundLess = true
+		}
+		if s.Output == ">" && s.Keycode == 47 {
+			foundGreater = true
+		}
+	}
+	if !foundLess || !foundGreater {
+		t.Errorf("expected default double-tap sequences for < and >")
+	}
+}
+
+func TestHyperKeyAndDevices(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.HyperKey.SourceKeycode != 57 {
+		t.Errorf("expected default source keycode 57 (Caps Lock), got %d", cfg.HyperKey.SourceKeycode)
+	}
+	if cfg.HyperKey.TapAction != "escape" {
+		t.Errorf("expected default tap action 'escape', got %s", cfg.HyperKey.TapAction)
+	}
+
+	// Add test device
+	cfg.Devices = append(cfg.Devices, KeyboardDevice{
+		ID:         "test-dev-1",
+		Name:       "Test External Keyboard",
+		VendorID:   1234,
+		ProductID:  5678,
+		Transport:  "USB",
+		IsInternal: false,
+		Enabled:    true,
+	})
+
+	data, err := cfg.ExportJSON()
+	if err != nil {
+		t.Fatalf("failed to export: %v", err)
+	}
+
+	imported := &Config{}
+	if err := imported.ImportJSON(data); err != nil {
+		t.Fatalf("failed to import: %v", err)
+	}
+
+	if len(imported.Devices) != 1 || imported.Devices[0].VendorID != 1234 {
+		t.Errorf("devices did not round-trip correctly")
+	}
+}
